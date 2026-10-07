@@ -213,7 +213,7 @@ private final class SMSViewModel: ObservableObject {
     }
 }
 
-private enum RecipientParser {
+fileprivate enum RecipientParser {
     static func parseLines(_ text: String) -> [SMSRecipient] {
         var seen = Set<String>()
         return text.components(separatedBy: .newlines).compactMap { line in
@@ -253,7 +253,7 @@ private enum RecipientParser {
     }
 }
 
-private enum SpreadsheetImporter {
+fileprivate enum SpreadsheetImporter {
     static func parse(url: URL) throws -> [SMSRecipient] {
         let access = url.startAccessingSecurityScopedResource()
         defer { if access { url.stopAccessingSecurityScopedResource() } }
