@@ -1,0 +1,51 @@
+name: Build Bách SMS iOS 1.0.1 (unsigned)
+
+on:
+  push:
+    branches: [v1.0.1-native-fullscreen]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Restore app icon
+        run: |
+          python3 -c 'import base64,pathlib; p=pathlib.Path("BachSMS/App/Assets.xcassets/AppIcon.appiconset"); (p/"AppIcon.png").write_bytes(base64.b64decode((p/"AppIcon.png.b64").read_text()))'
+          sips -g pixelWidth -g pixelHeight BachSMS/App/Assets.xcassets/AppIcon.appiconset/AppIcon.png
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - name: Generate Xcode project
+        working-directory: BachSMS
+        run: xcodegen generate
+      - name: Resolve Swift packages
+        working-directory: BachSMS
+        run: xcodebuild -resolvePackageDependencies -project BachSMS.xcodeproj -scheme BachSMS
+      - name: Build device app
+        working-directory: BachSMS
+        run: |
+          set -o pipefail
+          xcodebuild -project BachSMS.xcodeproj -scheme BachSMS -configuration Release -sdk iphoneos -derivedDataPath build/DerivedData CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" build | tee build.log
+      - name: Package IPA
+        working-directory: BachSMS
+        run: |
+          APP="build/DerivedData/Build/Products/Release-iphoneos/BachSMS.app"
+          test -d "$APP"
+          mkdir -p Payload
+          cp -R "$APP" Payload/BachSMS.app
+          /usr/bin/zip -qry BachSMS_v1.0.1_native_unsigned.ipa Payload
+      - name: Upload IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: BachSMS-v1.0.1-native-unsigned-ipa
+          path: BachSMS/BachSMS_v1.0.1_native_unsigned.ipa
+          if-no-files-found: error
+          retention-days: 30
+      - name: Upload build log if failed
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: BachSMS-v1.0.1-build-log
+          path: BachSMS/build.log
+          if-no-files-found: ignore
