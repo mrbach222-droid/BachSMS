@@ -1,0 +1,34 @@
+name: BachSMS
+options:
+  bundleIdPrefix: vn.ngocbach
+  deploymentTarget:
+    iOS: "15.0"
+settings:
+  base:
+    SWIFT_VERSION: 5.0
+    TARGETED_DEVICE_FAMILY: "1"
+    CODE_SIGN_STYLE: Manual
+    CODE_SIGNING_ALLOWED: NO
+    CODE_SIGNING_REQUIRED: NO
+packages:
+  CoreXLSX:
+    url: https://github.com/CoreOffice/CoreXLSX.git
+    from: 0.14.2
+targets:
+  BachSMS:
+    type: application
+    platform: iOS
+    deploymentTarget: "15.0"
+    sources:
+      - path: App
+    dependencies:
+      - package: CoreXLSX
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: vn.ngocbach.bachsms
+        PRODUCT_NAME: BachSMS
+        INFOPLIST_FILE: App/Info.plist
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        GENERATE_INFOPLIST_FILE: NO
+    scheme:
+      gatherCoverageData: false
