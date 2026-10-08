@@ -6,8 +6,15 @@ on:
   workflow_dispatch:
 
 jobs:
+  runner-check:
+    name: Check hosted runner availability
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Verify the runner was allocated
+        run: echo "Hosted runner is available"
   build:
-    runs-on: macos-15
+    runs-on: macos-26
     steps:
       - uses: actions/checkout@v4
       - name: Restore app icon
@@ -50,7 +57,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: BachSMS-v1.0.1-build-log
+          name: BachSMS-v1.0.2-build-log
           path: BachSMS/build.log
           if-no-files-found: ignore
 
