@@ -5,43 +5,83 @@ on:
       - temp/bachbill-ipa-v1
     paths:
       - BachBill_v1.0.0_iOS_Source.zip
+      - .github/workflows/build-bachbill-from-upload.yml
   workflow_dispatch:
 jobs:
   build:
     runs-on: macos-15
     permissions:
-      contents: read
+      contents: write
     steps:
       - uses: actions/checkout@v4
-      - name: Unpack BachBill source
+      - name: Build unsigned IPA and publish result on isolated branch
         shell: bash
         run: |
+          set -euo pipefail
+          mkdir -p dist build/BachBill
+          LOG="$GITHUB_WORKSPACE/dist/build-output.log"
+          REPORT="$GITHUB_WORKSPACE/dist/BUILD_REPORT.md"
+          : > "$LOG"
+          publish_result() {
+            code=$1
+            trap - EXIT
+            set +e
+            if [ "$code" -eq 0 ] && [ -s "$GITHUB_WORKSPACE/dist/BachBill-v1.0.0-unsigned.ipa" ]; then
+              {
+                echo "# BachBill IPA build: SUCCESS"
+                echo ""
+                echo "Commit: ${GITHUB_SHA}"
+                echo "Run: https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+                echo "IPA: dist/BachBill-v1.0.0-unsigned.ipa"
+                echo "Date: $(date -u '+%Y-%m-%d %H:%M UTC')"
+              } > "$REPORT"
+              git add -f dist/BachBill-v1.0.0-unsigned.ipa
+            else
+              {
+                echo "# BachBill IPA build: FAILED"
+                echo ""
+                echo "Commit: ${GITHUB_SHA}"
+                echo "Run: https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+                echo "Date: $(date -u '+%Y-%m-%d %H:%M UTC')"
+                echo ""
+                echo '## Last 70 lines from build'
+                echo '~~~'
+                tail -n 70 "$LOG"
+                echo '~~~'
+              } > "$REPORT"
+            fi
+            git add -f dist/BUILD_REPORT.md
+            git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" commit -m "ci: BachBill build report [skip ci]" >/dev/null
+            git push origin "HEAD:${GITHUB_REF_NAME}"
+            push_status=$?
+            if [ "$push_status" -ne 0 ]; then
+              echo "Unable to publish build result to branch" >&2
+              exit 1
+            fi
+            exit "$code"
+          }
+          trap 'publish_result $?' EXIT
           test -f BachBill_v1.0.0_iOS_Source.zip
-          mkdir -p build/BachBill
           unzip -oq BachBill_v1.0.0_iOS_Source.zip -d build/BachBill
-      - name: Test invoice math and Excel output
-        working-directory: build/BachBill
-        run: swift test
-      - name: Prepare XcodeGen
-        run: brew install xcodegen
-      - name: Build unsigned iOS app
-        working-directory: build/BachBill
-        run: |
-          xcodegen generate
-          xcodebuild -project BachBill.xcodeproj -scheme BachBill \
+          cd build/BachBill
+          swift test 2>&1 | tee -a "$LOG"
+          if ! command -v xcodegen >/dev/null; then
+            brew install xcodegen 2>&1 | tee -a "$LOG"
+          fi
+          xcodegen generate 2>&1 | tee -a "$LOG"
+          xcodebuild -quiet -project BachBill.xcodeproj -scheme BachBill \
             -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' \
             -derivedDataPath "$RUNNER_TEMP/BachBill" \
-            CODE_SIGNING_ALLOWED=NO build
-      - name: Package unsigned IPA
-        shell: bash
-        run: |
-          set -e
-          mkdir -p "$RUNNER_TEMP/package/Payload" dist
-          cp -R "$RUNNER_TEMP/BachBill/Build/Products/Release-iphoneos/BachBill.app" "$RUNNER_TEMP/package/Payload/"
-          cd "$RUNNER_TEMP/package"
+            CODE_SIGNING_ALLOWED=NO build 2>&1 | tee -a "$LOG"
+          mkdir -p "$RUNNER_TEMP/bachbill-package/Payload"
+          cp -R "$RUNNER_TEMP/BachBill/Build/Products/Release-iphoneos/BachBill.app" \
+            "$RUNNER_TEMP/bachbill-package/Payload/"
+          cd "$RUNNER_TEMP/bachbill-package"
           zip -qry "$GITHUB_WORKSPACE/dist/BachBill-v1.0.0-unsigned.ipa" Payload
-          unzip -t "$GITHUB_WORKSPACE/dist/BachBill-v1.0.0-unsigned.ipa" >/dev/null
-      - uses: actions/upload-artifact@v4
+          unzip -t "$GITHUB_WORKSPACE/dist/BachBill-v1.0.0-unsigned.ipa" 2>&1 | tail -n 3 | tee -a "$LOG"
+      - name: Preserve unsigned IPA as GitHub artifact
+        if: success()
+        uses: actions/upload-artifact@v4
         with:
           name: BachBill-v1.0.0-unsigned-IPA
           path: dist/BachBill-v1.0.0-unsigned.ipa
