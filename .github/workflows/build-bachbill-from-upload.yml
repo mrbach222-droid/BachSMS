@@ -1,0 +1,49 @@
+name: Build BachBill IPA
+on:
+  push:
+    branches:
+      - temp/bachbill-ipa-v1
+    paths:
+      - BachBill_v1.0.0_iOS_Source.zip
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: macos-15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Unpack BachBill source
+        shell: bash
+        run: |
+          test -f BachBill_v1.0.0_iOS_Source.zip
+          mkdir -p build/BachBill
+          unzip -oq BachBill_v1.0.0_iOS_Source.zip -d build/BachBill
+      - name: Test invoice math and Excel output
+        working-directory: build/BachBill
+        run: swift test
+      - name: Prepare XcodeGen
+        run: brew install xcodegen
+      - name: Build unsigned iOS app
+        working-directory: build/BachBill
+        run: |
+          xcodegen generate
+          xcodebuild -project BachBill.xcodeproj -scheme BachBill \
+            -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' \
+            -derivedDataPath "$RUNNER_TEMP/BachBill" \
+            CODE_SIGNING_ALLOWED=NO build
+      - name: Package unsigned IPA
+        shell: bash
+        run: |
+          set -e
+          mkdir -p "$RUNNER_TEMP/package/Payload" dist
+          cp -R "$RUNNER_TEMP/BachBill/Build/Products/Release-iphoneos/BachBill.app" "$RUNNER_TEMP/package/Payload/"
+          cd "$RUNNER_TEMP/package"
+          zip -qry "$GITHUB_WORKSPACE/dist/BachBill-v1.0.0-unsigned.ipa" Payload
+          unzip -t "$GITHUB_WORKSPACE/dist/BachBill-v1.0.0-unsigned.ipa" >/dev/null
+      - uses: actions/upload-artifact@v4
+        with:
+          name: BachBill-v1.0.0-unsigned-IPA
+          path: dist/BachBill-v1.0.0-unsigned.ipa
+          if-no-files-found: error
+          retention-days: 30
