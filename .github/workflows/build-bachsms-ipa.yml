@@ -8,6 +8,7 @@ on:
 jobs:
   build:
     runs-on: macos-15
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - name: Restore app icon
@@ -46,11 +47,13 @@ jobs:
           path: BachSMS/BachSMS_v1.0.2_native_fix_unsigned.ipa
           if-no-files-found: error
           retention-days: 30
-      - name: Upload build log if failed
+      - name: Upload test and build logs if failed
         if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: BachSMS-v1.0.2-build-log
-          path: BachSMS/build.log
+          path: |
+            import-tests.log
+            BachSMS/build.log
           if-no-files-found: ignore
 
