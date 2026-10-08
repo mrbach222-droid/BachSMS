@@ -6,6 +6,12 @@ on:
     paths:
       - BachBill_v1.0.0_iOS_Source.zip
       - .github/workflows/build-bachbill-from-upload.yml
+  pull_request:
+    branches:
+      - main
+    paths:
+      - BachBill_v1.0.0_iOS_Source.zip
+      - .github/workflows/build-bachbill-from-upload.yml
   workflow_dispatch:
 jobs:
   build:
@@ -14,6 +20,8 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: temp/bachbill-ipa-v1
       - name: Build unsigned IPA and publish result on isolated branch
         shell: bash
         run: |
@@ -52,7 +60,7 @@ jobs:
             fi
             git add -f dist/BUILD_REPORT.md
             git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" commit -m "ci: BachBill build report [skip ci]" >/dev/null
-            git push origin "HEAD:${GITHUB_REF_NAME}"
+            git push origin "HEAD:temp/bachbill-ipa-v1"
             push_status=$?
             if [ "$push_status" -ne 0 ]; then
               echo "Unable to publish build result to branch" >&2
