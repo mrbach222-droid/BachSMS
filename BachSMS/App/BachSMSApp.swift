@@ -1,7 +1,6 @@
 import SwiftUI
 import UniformTypeIdentifiers
 import MessageUI
-import CoreXLSX
 import Combine
 
 @main
@@ -24,19 +23,6 @@ private enum SMSPalette {
     static let card = Color.white
     static let preview = Color(red: 0.94, green: 0.98, blue: 0.96)
     static let warning = Color(red: 0.55, green: 0.35, blue: 0.15)
-}
-
-private struct SMSRecipient: Identifiable, Codable, Hashable {
-    var id: UUID = UUID()
-    var name: String
-    var phone: String
-    var status: RecipientStatus = .pending
-}
-
-private enum RecipientStatus: String, Codable {
-    case pending
-    case sent
-    case skipped
 }
 
 private enum SMSFlowStep: Int, Codable {
@@ -105,8 +91,12 @@ private final class SMSViewModel: ObservableObject {
     }
 
     func importFile(_ url: URL) async {
+        guard !isImporting else { return }
         isImporting = true
-        defer { isImporting = false }
+        defer {
+            isImporting = false
+            try? FileManager.default.removeItem(at: url.deletingLastPathComponent())
+        }
 
         do {
             let items = try await Task.detached(priority: .userInitiated) {
@@ -116,8 +106,10 @@ private final class SMSViewModel: ObservableObject {
                 alertText = "Tệp chưa có số điện thoại hợp lệ. Hãy kiểm tra tiêu đề cột Tên và Số điện thoại."
                 return
             }
+            let oldCount = recipients.count
             merge(items)
-            alertText = "Đã nhập \(items.count) liên hệ từ tệp."
+            let added = recipients.count - oldCount
+            alertText = "Đã thêm \(added) người nhận · bỏ qua \(items.count - added) số đã có trong danh sách."
         } catch {
             alertText = error.localizedDescription
         }
@@ -213,236 +205,12 @@ private final class SMSViewModel: ObservableObject {
     }
 }
 
-fileprivate enum RecipientParser {
-    static func parseLines(_ text: String) -> [SMSRecipient] {
-        var seen = Set<String>()
-        return text.components(separatedBy: .newlines).compactMap { line in
-            let pattern = #"\+?\d[\d\s().-]{6,}\d"#
-            guard let range = line.range(of: pattern, options: .regularExpression) else { return nil }
-            let token = String(line[range])
-            guard let phone = normalizePhone(token) else { return nil }
-            let name = line.replacingOccurrences(of: token, with: "")
-                .trimmingCharacters(in: CharacterSet.whitespacesAndNewlines.union(CharacterSet(charactersIn: ",;|\t")))
-            let resolvedName = name.isEmpty ? "anh/chị" : name
-            let key = canonicalPhone(phone)
-            guard seen.insert(key).inserted else { return nil }
-            return SMSRecipient(name: resolvedName, phone: phone)
-        }
-    }
-
-    static func normalizePhone(_ value: String) -> String? {
-        var source = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        if let number = Double(source), source.range(of: #"^\d+(?:\.\d+)?[eE][+-]?\d+$"#, options: .regularExpression) != nil {
-            source = String(format: "%.0f", number)
-        }
-        var digits = source.filter(\.isNumber)
-        guard !digits.isEmpty else { return nil }
-
-        if digits.hasPrefix("00") { digits = String(digits.dropFirst(2)) }
-        if digits.hasPrefix("0"), digits.count >= 9 {
-            digits = "84" + digits.dropFirst()
-        } else if digits.count == 9 {
-            digits = "84" + digits
-        }
-        guard digits.count >= 10, digits.count <= 15 else { return nil }
-        return "+" + digits
-    }
-
-    static func canonicalPhone(_ value: String) -> String {
-        value.filter(\.isNumber)
-    }
-}
-
-fileprivate enum SpreadsheetImporter {
-    static func parse(url: URL) throws -> [SMSRecipient] {
-        let access = url.startAccessingSecurityScopedResource()
-        defer { if access { url.stopAccessingSecurityScopedResource() } }
-
-        let ext = url.pathExtension.lowercased()
-        if ext == "csv" || ext == "tsv" {
-            let text = try String(contentsOf: url, encoding: .utf8)
-            return RecipientParser.parseLinesFromDelimited(text, delimiter: ext == "tsv" ? "\t" : nil)
-        }
-        guard ext == "xlsx" else {
-            throw ImportError.unsupported("Bản native nhận .xlsx, .csv và .tsv. Hãy lưu tệp .xls thành .xlsx rồi nhập lại.")
-        }
-        guard let file = XLSXFile(filepath: url.path) else {
-            throw ImportError.invalidFile
-        }
-        let workbook = try file.parseWorkbooks().first
-        guard let workbook else { throw ImportError.noSheet }
-        let sheets = try file.parseWorksheetPathsAndNames(workbook: workbook)
-        guard let path = sheets.first?.path else { throw ImportError.noSheet }
-        let sheet = try file.parseWorksheet(at: path)
-        let shared = try file.parseSharedStrings()
-        let rows: [[Int: String]] = (sheet.data?.rows ?? []).map { row in
-            var values: [Int: String] = [:]
-            for cell in row.cells {
-                let column = Self.columnIndex(cell.reference.column.value)
-                let value: String
-                if let shared, let text = cell.stringValue(shared) {
-                    value = text
-                } else {
-                    value = cell.value ?? ""
-                }
-                values[column] = value.trimmingCharacters(in: .whitespacesAndNewlines)
-            }
-            return values
-        }
-        return parseRows(rows)
-    }
-
-    private static func columnIndex(_ letters: String) -> Int {
-        letters.uppercased().reduce(0) { ($0 * 26) + (Int($1.asciiValue ?? 64) - 64) - 1 }
-    }
-
-    private static func parseRows(_ rows: [[Int: String]]) -> [SMSRecipient] {
-        let nonEmpty = rows.filter { $0.values.contains(where: { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) }
-        guard !nonEmpty.isEmpty else { return [] }
-
-        let phoneHeaders: Set<String> = ["sdt", "sdt kh", "sdt khach hang", "so dt", "so dien thoai", "dien thoai", "phone", "phone number", "mobile", "mobile number", "tel", "telephone"]
-        let nameHeaders: Set<String> = ["ho ten", "ho va ten", "ten", "ten kh", "ten khach hang", "khach hang", "name", "full name", "customer", "customer name"]
-
-        var headerRowIndex: Int?
-        var phoneColumn: Int?
-        var nameColumn: Int?
-
-        for (rowIndex, row) in nonEmpty.enumerated() {
-            let normalized = row.mapValues(normalizeHeader)
-            let phone = normalized.first(where: { phoneHeaders.contains($0.value) })?.key
-            let name = normalized.first(where: { nameHeaders.contains($0.value) })?.key
-            if let phone, let name {
-                headerRowIndex = rowIndex
-                phoneColumn = phone
-                nameColumn = name
-                break
-            }
-        }
-
-        let bodyRows: ArraySlice<[Int: String]>
-        if let headerRowIndex {
-            bodyRows = nonEmpty.dropFirst(headerRowIndex + 1)
-        } else {
-            bodyRows = nonEmpty[...]
-            let candidateColumns = Set(nonEmpty.flatMap { $0.keys })
-            phoneColumn = candidateColumns.max(by: { lhs, rhs in
-                let left = nonEmpty.filter { RecipientParser.normalizePhone($0[lhs] ?? "") != nil }.count
-                let right = nonEmpty.filter { RecipientParser.normalizePhone($0[rhs] ?? "") != nil }.count
-                return left < right
-            })
-            if let phoneColumn {
-                nameColumn = candidateColumns.filter { $0 != phoneColumn }.max(by: { lhs, rhs in
-                    let left = nonEmpty.filter {
-                        let value = ($0[lhs] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-                        return !value.isEmpty && RecipientParser.normalizePhone(value) == nil
-                    }.count
-                    let right = nonEmpty.filter {
-                        let value = ($0[rhs] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-                        return !value.isEmpty && RecipientParser.normalizePhone(value) == nil
-                    }.count
-                    return left < right
-                })
-            }
-        }
-
-        guard let phoneColumn else { return [] }
-        var result: [SMSRecipient] = []
-        var seen = Set<String>()
-        for row in bodyRows {
-            guard let phone = RecipientParser.normalizePhone(row[phoneColumn] ?? "") else { continue }
-            let nameValue = nameColumn.flatMap { row[$0] }
-            let name = nameValue?.trimmingCharacters(in: .whitespacesAndNewlines)
-            let resolvedName = (name?.isEmpty == false) ? name! : "anh/chị"
-            let key = RecipientParser.canonicalPhone(phone)
-            if seen.insert(key).inserted { result.append(SMSRecipient(name: resolvedName, phone: phone)) }
-        }
-        return result
-    }
-
-    private static func normalizeHeader(_ text: String) -> String {
-        text.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: Locale(identifier: "vi_VN"))
-            .replacingOccurrences(of: "đ", with: "d")
-            .replacingOccurrences(of: "_", with: " ")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    private enum ImportError: LocalizedError {
-        case invalidFile
-        case noSheet
-        case unsupported(String)
-
-        var errorDescription: String? {
-            switch self {
-            case .invalidFile: return "Không đọc được tệp Excel. Hãy thử lưu lại thành .xlsx."
-            case .noSheet: return "Tệp Excel không có trang tính dữ liệu."
-            case .unsupported(let message): return message
-            }
-        }
-    }
-}
-
-fileprivate extension RecipientParser {
-    static func parseLinesFromDelimited(_ text: String, delimiter explicitDelimiter: Character?) -> [SMSRecipient] {
-        let delimiter = explicitDelimiter ?? (text.components(separatedBy: .newlines).first?.filter { $0 == ";" }.count ?? 0 >
-            (text.components(separatedBy: .newlines).first?.filter { $0 == "," }.count ?? 0) ? ";" : ",")
-        let rows = parseCSV(text, delimiter: delimiter)
-        return SpreadsheetImporter.parseDelimitedRows(rows)
-    }
-
-    static func parseCSV(_ text: String, delimiter: Character) -> [[String]] {
-        var rows: [[String]] = [[]]
-        var cell = ""
-        var quoted = false
-        let chars = Array(text)
-        var index = 0
-        while index < chars.count {
-            let char = chars[index]
-            if quoted {
-                if char == "\"", index + 1 < chars.count, chars[index + 1] == "\"" {
-                    cell.append("\"")
-                    index += 1
-                } else if char == "\"" {
-                    quoted = false
-                } else {
-                    cell.append(char)
-                }
-            } else if char == "\"" {
-                quoted = true
-            } else if char == delimiter {
-                rows[rows.count - 1].append(cell)
-                cell = ""
-            } else if char == "\n" || char == "\r" {
-                if char == "\r", index + 1 < chars.count, chars[index + 1] == "\n" { index += 1 }
-                rows[rows.count - 1].append(cell)
-                cell = ""
-                rows.append([])
-            } else {
-                cell.append(char)
-            }
-            index += 1
-        }
-        rows[rows.count - 1].append(cell)
-        return rows
-    }
-}
-
-fileprivate extension SpreadsheetImporter {
-    static func parseDelimitedRows(_ rows: [[String]]) -> [SMSRecipient] {
-        let mapped = rows.map { row in Dictionary(uniqueKeysWithValues: row.enumerated().map { ($0.offset, $0.element) }) }
-        return parseRows(mapped)
-    }
-}
-
 private struct SMSRootView: View {
     @StateObject private var model = SMSViewModel()
     @State private var showFileImporter = false
     @State private var showComposer = false
-    @State private var composeResult: MessageComposeResult?
+    @FocusState private var editorFocused: Bool
     @State private var fileImporterError: String?
-
-    private var importTypes: [UTType] {
-        [.spreadsheet, .commaSeparatedText, .plainText, .data]
-    }
 
     var body: some View {
         ZStack {
@@ -467,27 +235,26 @@ private struct SMSRootView: View {
             }
         }
         .safeAreaInset(edge: .bottom, spacing: 0) { bottomBar }
-        .fileImporter(isPresented: $showFileImporter, allowedContentTypes: importTypes, allowsMultipleSelection: false) { result in
-            switch result {
-            case .success(let urls):
-                guard let url = urls.first else { return }
-                Task { await model.importFile(url) }
-            case .failure(let error):
-                fileImporterError = error.localizedDescription
-            }
+        .background {
+            NativePresentation(
+                showFilePicker: $showFileImporter,
+                showSMS: $showComposer,
+                recipient: model.currentRecipient?.phone ?? "",
+                message: model.personalizedMessage,
+                onFile: { result in
+                    switch result {
+                    case .success(let url): Task { await model.importFile(url) }
+                    case .failure(let error): fileImporterError = error.localizedDescription
+                    }
+                },
+                onSMS: { result in model.record(result) },
+                onError: { message in model.alertText = message }
+            )
         }
-        .fullScreenCover(isPresented: $showComposer, onDismiss: {
-            if let result = composeResult {
-                composeResult = nil
-                model.record(result)
-            }
-        }) {
-            if let recipient = model.currentRecipient {
-                SMSComposer(recipient: recipient.phone, message: model.personalizedMessage) { result in
-                    composeResult = result
-                    showComposer = false
-                }
-                .interactiveDismissDisabled()
+        .toolbar {
+            ToolbarItemGroup(placement: .keyboard) {
+                Spacer()
+                Button("Xong") { editorFocused = false }
             }
         }
         .alert("Bách SMS", isPresented: Binding(
@@ -514,7 +281,7 @@ private struct SMSRootView: View {
             }
             Spacer()
             if model.step != .recipients {
-                Button { model.previousStep() } label: {
+                Button { editorFocused = false; model.previousStep() } label: {
                     Label("Quay lại", systemImage: "chevron.left")
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundStyle(SMSPalette.green)
@@ -550,7 +317,7 @@ private struct SMSRootView: View {
                     .font(.system(size: 14)).foregroundStyle(SMSPalette.muted)
             }
 
-            Button { showFileImporter = true } label: {
+            Button { editorFocused = false; showFileImporter = true } label: {
                 HStack(spacing: 14) {
                     ZStack {
                         RoundedRectangle(cornerRadius: 16, style: .continuous).fill(SMSPalette.paleGreen)
@@ -588,6 +355,7 @@ private struct SMSRootView: View {
                             .padding(.vertical, 12)
                     }
                     TextEditor(text: $model.manualInput)
+                        .focused($editorFocused)
                         .font(.system(size: 14))
                         .frame(minHeight: 94, maxHeight: 150)
                         .padding(7)
@@ -656,6 +424,7 @@ private struct SMSRootView: View {
                     .foregroundStyle(SMSPalette.green)
                 }
                 TextEditor(text: $model.template)
+                    .focused($editorFocused)
                     .font(.system(size: 15))
                     .frame(minHeight: 170, maxHeight: 280)
                     .padding(10)
@@ -749,6 +518,7 @@ private struct SMSRootView: View {
                         model.alertText = "iPhone chưa sẵn sàng gửi SMS. Hãy kiểm tra SIM và thử lại."
                         return
                     }
+                    editorFocused = false
                     showComposer = true
                 } label: {
                     Label("Mở trong Tin nhắn", systemImage: "bubble.left.and.bubble.right.fill")
@@ -818,7 +588,7 @@ private struct SMSRootView: View {
         Group {
             switch model.step {
             case .recipients:
-                Button { model.beginCompose() } label: {
+                Button { editorFocused = false; model.beginCompose() } label: {
                     VStack(spacing: 3) {
                         Text("Bắt đầu soạn tin").font(.system(size: 16, weight: .semibold))
                         Text("\(model.recipients.count) người nhận").font(.system(size: 11, weight: .medium)).opacity(0.85)
@@ -832,7 +602,7 @@ private struct SMSRootView: View {
                 .disabled(model.recipients.isEmpty)
                 .opacity(model.recipients.isEmpty ? 0.55 : 1)
             case .compose:
-                Button { model.beginReview() } label: {
+                Button { editorFocused = false; model.beginReview() } label: {
                     Text("Xem người nhận đầu tiên")
                         .frame(maxWidth: .infinity)
                         .font(.system(size: 16, weight: .semibold))
@@ -909,36 +679,6 @@ private struct PrimaryButtonStyle: ButtonStyle {
             .padding(.vertical, 14)
             .frame(maxWidth: .infinity)
             .background(SMSPalette.green.opacity(configuration.isPressed ? 0.82 : 1), in: RoundedRectangle(cornerRadius: 15))
-    }
-}
-
-private struct SMSComposer: UIViewControllerRepresentable {
-    let recipient: String
-    let message: String
-    let onFinish: (MessageComposeResult) -> Void
-
-    func makeCoordinator() -> Coordinator { Coordinator(onFinish: onFinish) }
-
-    func makeUIViewController(context: Context) -> MFMessageComposeViewController {
-        let composer = MFMessageComposeViewController()
-        composer.messageComposeDelegate = context.coordinator
-        composer.recipients = [recipient]
-        composer.body = message
-        return composer
-    }
-
-    func updateUIViewController(_ controller: MFMessageComposeViewController, context: Context) {}
-
-    final class Coordinator: NSObject, MFMessageComposeViewControllerDelegate {
-        private let onFinish: (MessageComposeResult) -> Void
-
-        init(onFinish: @escaping (MessageComposeResult) -> Void) {
-            self.onFinish = onFinish
-        }
-
-        func messageComposeViewController(_ controller: MFMessageComposeViewController, didFinishWith result: MessageComposeResult) {
-            onFinish(result)
-        }
     }
 }
 

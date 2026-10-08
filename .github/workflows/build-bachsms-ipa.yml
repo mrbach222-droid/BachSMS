@@ -1,4 +1,4 @@
-name: Build Bách SMS iOS 1.0.1 (unsigned)
+name: Build Bách SMS iOS 1.0.2 (unsigned)
 
 on:
   push:
@@ -14,6 +14,10 @@ jobs:
         run: |
           python3 -c 'import base64,pathlib; p=pathlib.Path("BachSMS/App/Assets.xcassets/AppIcon.appiconset"); (p/"AppIcon.png").write_bytes(base64.b64decode((p/"AppIcon.png.b64").read_text()))'
           sips -g pixelWidth -g pixelHeight BachSMS/App/Assets.xcassets/AppIcon.appiconset/AppIcon.png
+      - name: Test Excel and CSV import regressions
+        run: |
+          set -o pipefail
+          swift test 2>&1 | tee import-tests.log
       - name: Install XcodeGen
         run: brew install xcodegen
       - name: Generate Xcode project
@@ -34,12 +38,12 @@ jobs:
           test -d "$APP"
           mkdir -p Payload
           cp -R "$APP" Payload/BachSMS.app
-          /usr/bin/zip -qry BachSMS_v1.0.1_native_unsigned.ipa Payload
+          /usr/bin/zip -qry BachSMS_v1.0.2_native_fix_unsigned.ipa Payload
       - name: Upload IPA
         uses: actions/upload-artifact@v4
         with:
-          name: BachSMS-v1.0.1-native-unsigned-ipa
-          path: BachSMS/BachSMS_v1.0.1_native_unsigned.ipa
+          name: BachSMS-v1.0.2-native-fix-unsigned-ipa
+          path: BachSMS/BachSMS_v1.0.2_native_fix_unsigned.ipa
           if-no-files-found: error
           retention-days: 30
       - name: Upload build log if failed
@@ -49,3 +53,4 @@ jobs:
           name: BachSMS-v1.0.1-build-log
           path: BachSMS/build.log
           if-no-files-found: ignore
+

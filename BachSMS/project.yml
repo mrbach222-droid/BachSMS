@@ -25,6 +25,8 @@ targets:
       - package: CoreXLSX
     settings:
       base:
+        TARGETED_DEVICE_FAMILY: "1"
+        SUPPORTS_MACCATALYST: NO
         PRODUCT_BUNDLE_IDENTIFIER: vn.ngocbach.bachsms
         PRODUCT_NAME: BachSMS
         INFOPLIST_FILE: App/Info.plist
@@ -32,3 +34,4 @@ targets:
         GENERATE_INFOPLIST_FILE: NO
     scheme:
       gatherCoverageData: false
+

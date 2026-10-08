@@ -1,11 +1,11 @@
-# Bách SMS iOS 1.0.1 — Native
+# Bách SMS iOS 1.0.2 — Native fixes
 
-Bản native SwiftUI thay giao diện webview. Có nhập danh sách `.xlsx`, `.csv`, `.tsv`, dán tên và số, cá nhân hóa `{ten}`, xem trọn nội dung từng SMS trước khi mở trình soạn iOS, gửi từng người và lưu trạng thái cục bộ.
+Based on v1.0.1, retaining its local storage key and original recipient/compose/review flow.
 
-Ứng dụng không tự gửi SMS. Người dùng phải kiểm tra nội dung và chạm **Gửi** trong giao diện Tin nhắn. Trạng thái `Đã gửi` phản ánh kết quả trả về từ iOS, không xác nhận tin đã được nhận.
+- Present MFMessageComposeViewController with UIKit present/dismiss and full-screen bounds. End editing before presentation; deliver cancel/send/fail only after dismissal completes.
+- Import files with a native document picker in copy mode, then make a coordinated local copy before background parsing. Allows selection from Files and third-party providers; validates xlsx/csv/tsv on import.
+- Read inline/shared/rich-text Excel cells, skip blank cover sheets, fix AA+ column indexes, support numeric/scientific phone cells, and accept phone-only headers.
+- Parse Windows CRLF, UTF-8 BOM, UTF-16, semicolon CSV and TSV. Deduplicate phones and report newly added recipients accurately.
+- Build IPA in GitHub Actions after six Swift regression tests. SMS send/cancel and keyboard alignment require an iPhone with a SIM for final validation.
 
-## Build
-
-GitHub Actions trên nhánh `v1.0.1-native-fullscreen` tạo IPA unsigned. Cần macOS, XcodeGen, Xcode và kết nối Internet để lấy CoreXLSX.
-
-Tệp `.xls` cũ cần được lưu thành `.xlsx`; CoreXLSX đọc `.xlsx` và tệp CSV/TSV được hỗ trợ trực tiếp.
+Old binary .xls files must be saved as .xlsx before import. This app requires the user to tap Send for each message. Existing saved data is retained with the same bundle identifier and UserDefaults key.
