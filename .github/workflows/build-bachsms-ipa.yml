@@ -6,15 +6,8 @@ on:
   workflow_dispatch:
 
 jobs:
-  runner-check:
-    name: Check hosted runner availability
-    runs-on: ubuntu-latest
-    timeout-minutes: 2
-    steps:
-      - name: Verify the runner was allocated
-        run: echo "Hosted runner is available"
   build:
-    runs-on: macos-26
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
       - name: Restore app icon
