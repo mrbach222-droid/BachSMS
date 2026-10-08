@@ -437,6 +437,7 @@ private struct SMSRootView: View {
     @StateObject private var model = SMSViewModel()
     @State private var showFileImporter = false
     @State private var showComposer = false
+    @State private var composeResult: MessageComposeResult?
     @State private var fileImporterError: String?
 
     private var importTypes: [UTType] {
@@ -475,13 +476,18 @@ private struct SMSRootView: View {
                 fileImporterError = error.localizedDescription
             }
         }
-        .sheet(isPresented: $showComposer) {
+        .fullScreenCover(isPresented: $showComposer, onDismiss: {
+            if let result = composeResult {
+                composeResult = nil
+                model.record(result)
+            }
+        }) {
             if let recipient = model.currentRecipient {
                 SMSComposer(recipient: recipient.phone, message: model.personalizedMessage) { result in
+                    composeResult = result
                     showComposer = false
-                    model.record(result)
                 }
-                .ignoresSafeArea()
+                .interactiveDismissDisabled()
             }
         }
         .alert("Bách SMS", isPresented: Binding(
