@@ -1,4 +1,4 @@
-# Bách SMS iOS 1.0.2 — Native fixes
+# Bách SMS iOS 1.0.3 — Mẫu gợi ý
 
 ## Bản nền đã chốt — 08/10/2026
 
@@ -11,6 +11,14 @@ Người dùng đã xác nhận bản Bách SMS **v1.0.2 (build 3)** hoạt đ�
 - GitHub Actions run: `37757934346`; build thành công, 6 kiểm tra nhập Excel/CSV đạt.
 
 Mọi sửa đổi tiếp theo phải bắt đầu từ bản nền này, giữ khả năng đọc dữ liệu đã lưu và các tính năng đã được chốt, trừ khi người dùng yêu cầu thay đổi. Giữ nhánh `baseline-v1.0.2` tại commit trên để có thể đối chiếu và khôi phục đúng bản đã được duyệt.
+
+## Mẫu gợi ý v1.0.3
+
+Bổ sung 9 mẫu trong 3 nhóm: nhắc khách hàng, khách sai hẹn và nhờ người nhà chuyển lời. Mỗi nhóm có 3 mức độ, xem toàn bộ nội dung rồi bấm Dùng mẫu. Nội dung vẫn chỉnh sửa được trước khi gửi và `{ten}` tự thay theo tên trong danh sách.
+
+Mẫu người nhà chỉ nhờ chuyển lời liên hệ, không tiết lộ khoản nợ hoặc yêu cầu trả thay. Với nhóm này, tên trong danh sách là tên khách cần chuyển lời, còn số điện thoại là số người nhà được phép liên hệ.
+
+Dữ liệu và nội dung người dùng đã lưu được đọc theo cùng định dạng; mã mẫu đã chọn là trường tùy chọn bổ sung. Không tự thay nội dung đang soạn khi cập nhật app.
 
 Based on v1.0.1, retaining its local storage key and original recipient/compose/review flow.
 

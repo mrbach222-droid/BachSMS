@@ -3,6 +3,66 @@ import UniformTypeIdentifiers
 import MessageUI
 import Combine
 
+private struct SMSTemplatePicker: View {
+    @Environment(\.dismiss) private var dismiss
+    let onSelect: (SMSSuggestedTemplate) -> Void
+
+    var body: some View {
+        NavigationView {
+            List {
+                Section {
+                    Text("9 mẫu theo tình huống, từ nhẹ nhàng đến kiên quyết. Bạn có thể chỉnh nội dung sau khi chọn. {ten} tự thay bằng tên trong danh sách.")
+                        .font(.system(size: 13))
+                        .foregroundStyle(SMSPalette.muted)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                ForEach(SMSTemplateGroup.allCases) { group in
+                    Section {
+                        ForEach(SMSTemplateLibrary.templates(in: group)) { suggested in
+                            VStack(alignment: .leading, spacing: 10) {
+                                Text(suggested.levelTitle)
+                                    .font(.system(size: 11, weight: .bold))
+                                    .foregroundStyle(suggested.level == 3 ? SMSPalette.warning : SMSPalette.green)
+                                Text(suggested.title)
+                                    .font(.system(size: 15, weight: .semibold))
+                                    .foregroundStyle(SMSPalette.ink)
+                                Text(suggested.body)
+                                    .font(.system(size: 14))
+                                    .foregroundStyle(SMSPalette.muted)
+                                    .fixedSize(horizontal: false, vertical: true)
+                                Button {
+                                    onSelect(suggested)
+                                } label: {
+                                    Label("Dùng mẫu", systemImage: "text.badge.checkmark")
+                                        .font(.system(size: 13, weight: .semibold))
+                                        .foregroundStyle(SMSPalette.green)
+                                        .padding(.vertical, 7)
+                                }
+                                .buttonStyle(.borderless)
+                                .accessibilityLabel("Dùng mẫu \(group.title), \(suggested.levelTitle), \(suggested.title)")
+                            }
+                            .padding(.vertical, 7)
+                        }
+                    } header: {
+                        Text(group.title)
+                    } footer: {
+                        Text(group.guidance)
+                    }
+                }
+            }
+            .listStyle(.insetGrouped)
+            .navigationTitle("Mẫu gợi ý")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Đóng") { dismiss() }
+                }
+            }
+        }
+        .navigationViewStyle(.stack)
+    }
+}
+
 @main
 struct BachSMSApp: App {
     var body: some Scene {
@@ -36,6 +96,7 @@ private enum SMSFlowStep: Int, Codable {
 private final class SMSViewModel: ObservableObject {
     @Published var recipients: [SMSRecipient] { didSet { persist() } }
     @Published var template: String { didSet { persist() } }
+    @Published var selectedTemplateID: String? { didSet { persist() } }
     @Published var currentIndex: Int { didSet { persist() } }
     @Published var step: SMSFlowStep { didSet { persist() } }
     @Published var manualInput = ""
@@ -50,6 +111,7 @@ private final class SMSViewModel: ObservableObject {
         var template: String
         var currentIndex: Int
         var step: SMSFlowStep
+        var selectedTemplateID: String? = nil
     }
 
     init() {
@@ -57,11 +119,13 @@ private final class SMSViewModel: ObservableObject {
            let saved = try? JSONDecoder().decode(SavedState.self, from: data) {
             recipients = saved.recipients
             template = saved.template
+            selectedTemplateID = saved.selectedTemplateID
             currentIndex = min(saved.currentIndex, max(saved.recipients.count - 1, 0))
             step = saved.step
         } else {
             recipients = []
             template = defaultTemplate
+            selectedTemplateID = nil
             currentIndex = 0
             step = .recipients
         }
@@ -74,6 +138,15 @@ private final class SMSViewModel: ObservableObject {
     var personalizedMessage: String {
         guard let currentRecipient else { return template.replacingOccurrences(of: "{ten}", with: "anh/chị") }
         return template.replacingOccurrences(of: "{ten}", with: currentRecipient.name)
+    }
+
+    var suggestedTemplate: SMSSuggestedTemplate? {
+        SMSTemplateLibrary.template(id: selectedTemplateID)
+    }
+
+    func applySuggestedTemplate(_ suggested: SMSSuggestedTemplate) {
+        template = suggested.body
+        selectedTemplateID = suggested.id
     }
 
     var sentCount: Int { recipients.filter { $0.status == .sent }.count }
@@ -198,7 +271,7 @@ private final class SMSViewModel: ObservableObject {
     }
 
     private func persist() {
-        let state = SavedState(recipients: recipients, template: template, currentIndex: currentIndex, step: step)
+        let state = SavedState(recipients: recipients, template: template, currentIndex: currentIndex, step: step, selectedTemplateID: selectedTemplateID)
         if let data = try? JSONEncoder().encode(state) {
             UserDefaults.standard.set(data, forKey: storageKey)
         }
@@ -209,6 +282,7 @@ private struct SMSRootView: View {
     @StateObject private var model = SMSViewModel()
     @State private var showFileImporter = false
     @State private var showComposer = false
+    @State private var showTemplatePicker = false
     @FocusState private var editorFocused: Bool
     @State private var fileImporterError: String?
 
@@ -250,6 +324,12 @@ private struct SMSRootView: View {
                 onSMS: { result in model.record(result) },
                 onError: { message in model.alertText = message }
             )
+        }
+        .sheet(isPresented: $showTemplatePicker) {
+            SMSTemplatePicker { suggested in
+                model.applySuggestedTemplate(suggested)
+                showTemplatePicker = false
+            }
         }
         .toolbar {
             ToolbarItemGroup(placement: .keyboard) {
@@ -418,7 +498,8 @@ private struct SMSRootView: View {
                     Text("Nội dung mẫu").font(.system(size: 15, weight: .semibold)).foregroundStyle(SMSPalette.ink)
                     Spacer()
                     Button("Mẫu gợi ý") {
-                        model.template = "Chào anh/chị {ten}, em là Bách. Em xin phép nhắc anh/chị về lịch thanh toán. Nếu anh/chị đã thanh toán, vui lòng bỏ qua tin nhắn này. Cảm ơn anh/chị."
+                        editorFocused = false
+                        showTemplatePicker = true
                     }
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(SMSPalette.green)
@@ -432,6 +513,13 @@ private struct SMSRootView: View {
                     .overlay(RoundedRectangle(cornerRadius: 17, style: .continuous).stroke(SMSPalette.line, lineWidth: 1))
                 Text("\(model.template.count) ký tự · Nội dung được lưu trên iPhone")
                     .font(.system(size: 11)).foregroundStyle(SMSPalette.muted)
+                if let suggested = model.suggestedTemplate {
+                    Text("\(suggested.group.title) · \(suggested.levelTitle)")
+                        .font(.system(size: 12, weight: .semibold)).foregroundStyle(SMSPalette.green)
+                    Text(suggested.group.guidance)
+                        .font(.system(size: 12)).foregroundStyle(SMSPalette.muted)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
 
             VStack(alignment: .leading, spacing: 10) {
