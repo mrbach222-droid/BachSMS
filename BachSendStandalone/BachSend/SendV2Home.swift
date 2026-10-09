@@ -40,6 +40,7 @@ struct SendV2Home: View {
     @State private var photoItems: [PhotosPickerItem] = []
     @State private var copied = false
     @State private var showPrivateLinkQR = false
+    @State private var askForgetPersonalPCs = false
     @State private var removeAll = false
     @State private var showPurgeEverything = false
     @State private var mediaSavingURL: URL?
@@ -116,6 +117,12 @@ struct SendV2Home: View {
                 }
                 photoItems = []
             }
+        }
+        .confirmationDialog("Quên tất cả PC cá nhân đã tin cậy?", isPresented: $askForgetPersonalPCs) {
+            Button("Quên PC tin cậy", role: .destructive) { online.forgetTrustedComputers() }
+            Button("Hủy", role: .cancel) {}
+        } message: {
+            Text("Các PC đã lưu sẽ không còn tự được phép kết nối. Lần sau phải bấm Chấp nhận trên iPhone. Không xóa file gốc.")
         }
         .confirmationDialog("Xóa toàn bộ file đang chọn?", isPresented: $removeAll) {
             Button("Xóa file đã chọn", role: .destructive) {
@@ -224,7 +231,7 @@ struct SendV2Home: View {
                                   systemImage: "lock.shield.fill")
                                 .font(.system(size: 15, weight: .bold, design: .rounded))
                                 .foregroundStyle(SendStyle.accent)
-                            Text("PC đã liên kết: chỉ cần mở web và chọn tên iPhone. Nếu cần thêm PC mới, hãy mở mã QR trong thời gian ngắn.")
+                            Text("Personal Quick Connect: lần đầu Chấp nhận PC, lần sau chỉ cần mở web trên chính PC đó. B Send tự kết nối nếu iPhone đang bật chia sẻ Online.")
                                 .font(.system(size: 11))
                                 .foregroundStyle(SendStyle.secondary)
                                 .multilineTextAlignment(.center)
@@ -305,7 +312,7 @@ struct SendV2Home: View {
                             Label("PC yêu cầu ghép nối", systemImage: "shield.lefthalf.filled")
                                 .font(.system(size: 12, weight: .bold))
                                 .foregroundStyle(SendStyle.accent)
-                            Text("Một máy tính muốn gửi và nhận file qua B Send. Chỉ bấm Chấp nhận nếu chính bạn yêu cầu kết nối. Nếu không, hãy Từ chối.")
+                            Text("PC mới muốn ghép nối. Chỉ bấm Chấp nhận nếu chính bạn đang thao tác. PC này sẽ được tin cậy và tự kết nối các lần sau cho đến khi bạn thu hồi quyền.")
                                 .font(.system(size: 11))
                                 .foregroundStyle(SendStyle.secondary)
                             Label("Cho phép máy tính truy cập phiên chia sẻ?",
@@ -362,6 +369,14 @@ struct SendV2Home: View {
                         .font(.system(size: 11))
                         .foregroundStyle(SendStyle.secondary)
                         .fixedSize(horizontal: false, vertical: true)
+                    Button {
+                        askForgetPersonalPCs = true
+                    } label: {
+                        Label("Quên các PC đã tin cậy", systemImage: "lock.rotation")
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundStyle(SendStyle.secondary)
+                    }
+                    .buttonStyle(.plain)
                     if online.lastBackgroundSeconds > 0 {
                         Label("Lần chuyển ứng dụng gần nhất: \(online.lastBackgroundSeconds) giây",
                               systemImage: "clock.arrow.circlepath")
@@ -856,7 +871,7 @@ struct SendV2Home: View {
                             .contentShape(RoundedRectangle(cornerRadius: 11))
                     }.buttonStyle(.plain)
                 }.sendGlass()
-                Text("B Send · v0.6.1 Hidden Private Link · Bách App")
+                Text("B Send · v0.6.2 Personal Quick Connect · Bách App")
                     .font(.system(size: 10)).foregroundStyle(SendStyle.secondary.opacity(0.75))
             }.padding(.horizontal, 19).padding(.top, 10)
         }
