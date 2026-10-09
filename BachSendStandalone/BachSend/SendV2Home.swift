@@ -52,7 +52,9 @@ struct SendV2Home: View {
                 topBar
                 Group {
                     switch selectedTab {
-                    case 0: transferMode == 1 ? onlinePage : sharePage
+                    case 0:
+                        if transferMode == 1 { onlinePage }
+                        else { sharePage }
                     case 1: receivedPage
                     default: settingsPage
                     }
