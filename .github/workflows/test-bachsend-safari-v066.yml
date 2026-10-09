@@ -1,0 +1,38 @@
+name: Test B Send v0.6.6 Reliable Receive Safari persistence
+on:
+  push:
+    branches: [bachsend-v066-reliable-receive-media]
+    paths:
+      - 'BachSendCloudflare/**'
+      - '.github/workflows/test-bachsend-safari-v066.yml'
+  workflow_dispatch:
+jobs:
+  safari:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: BachSendCloudflare
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install Wrangler + Safari WebKit automation
+        run: |
+          npm install --no-audit --no-fund
+          npm install --no-save playwright@1.58.2
+          npx playwright install --with-deps webkit
+      - name: Validate browser / Worker source
+        run: npm test
+      - name: Run real WebKit private-device pairing test
+        run: |
+          set -eu
+          npx wrangler dev --local --ip 127.0.0.1 --port 8787 > /tmp/bsend-safari-wrangler.log 2>&1 &
+          PID=$!
+          trap 'kill $PID 2>/dev/null || true' EXIT
+          for i in $(seq 1 45); do
+            if curl -fsS http://127.0.0.1:8787/api/health >/dev/null; then break; fi
+            sleep 2
+          done
+          node test/safari-receive-v066.mjs || { cat /tmp/bsend-safari-wrangler.log; exit 1; }
