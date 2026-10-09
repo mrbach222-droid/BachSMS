@@ -33,3 +33,7 @@ Run \`npm install\` then \`npm test\` and \`npx wrangler deploy --dry-run\`. Dry
 ## Deployment check — Cloudflare
 
 If `/api/health` still responds with `Hello World!`, the last manually deployed starter Worker is still receiving traffic. Check the Cloudflare Worker **Settings → Builds** GitHub production branch (`bachsend-hybrid-v04`) and deploy command (`cd BachSendCloudflare && npx wrangler deploy`). A new push to this branch should trigger a Workers Build; check its success/error log under **Deployments → Builds**, then retest `/api/health` after a successful production deployment. Do not delete or recreate the Worker to resolve this state. This is a technical preview only; native iOS pairing and end-to-end encryption are not completed.
+
+## v0.5.1 deploy trigger
+
+The Cloudflare production Worker must track branch `bachsend-quick-v05`, with deployment command `cd BachSendCloudflare && npx wrangler deploy` when root is `/`. This documentation-only commit forces a safe rebuild to pick up the refreshed PC auto-resume web page; it does not modify the mobile app, backend data or the main branch. The deployed health endpoint should return `version: 0.5-quick` and the page should include `resume-probe` support.
