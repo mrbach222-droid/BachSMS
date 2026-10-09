@@ -1,0 +1,25 @@
+name: Validate B Send v0.5.2 One Tap Relay
+on:
+  push:
+    branches: [bachsend-v052-one-tap]
+    paths:
+      - 'BachSendCloudflare/**'
+      - '.github/workflows/test-bachsend-v052.yml'
+  workflow_dispatch:
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: BachSendCloudflare
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Test one-tap browser and JavaScript syntax
+        run: npm test
+      - name: Dry run Worker with Durable Objects
+        run: |
+          npm install --no-audit --no-fund
+          npx wrangler deploy --dry-run --outdir ./dist
