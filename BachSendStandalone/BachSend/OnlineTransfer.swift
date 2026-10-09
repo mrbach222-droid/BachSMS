@@ -61,7 +61,7 @@ final class BSendOnlineModel: ObservableObject {
     private var incomingSHA256: String?
     private var readyOffset: Int64?
     private var readyID: String?
-    private var readySHA: String?
+    private var ackVerified = false
     private var queuedOutgoing: [SharedTransferFile] = []
     private var outgoingTransferIDs: [UUID: String] = [:]
     private var pendingProgressId: String?
@@ -357,7 +357,7 @@ final class BSendOnlineModel: ObservableObject {
         outgoingTransferIDs.removeAll()
         readyID = nil
         readyOffset = nil
-        readySHA = nil
+        ackVerified = false
         sharedKey = nil
         pendingPCPublicKey = nil
         trustedChallenge = nil
@@ -598,13 +598,13 @@ final class BSendOnlineModel: ObservableObject {
             do {
                 try FileManager.default.moveItem(at: temporary, to: final)
                 let name = incomingName
+                let checked = incomingSHA256 != nil
                 cleanupIncoming()
                 progress = 1
                 progressTitle = "Đã nhận: " + name
-                message = incomingSHA256 == nil
-                    ? "Đã nhận file từ PC cũ (chưa kiểm tra SHA-256): " + name
-                    : "✓ SHA-256 trùng khớp. Đã nhận: " + name
-                let checked = incomingSHA256 != nil
+                message = checked
+                    ? "✓ SHA-256 trùng khớp. Đã nhận: " + name
+                    : "Đã nhận file từ PC cũ (chưa kiểm tra SHA-256): " + name
                 didReceive?()
                 try await sendControl(["type": "file-ack", "id": id, "verified": checked])
             } catch {
@@ -625,6 +625,7 @@ final class BSendOnlineModel: ObservableObject {
         case "file-ack":
             guard let id = json["id"] as? String else { return }
             acknowledgedReceipt = id
+            ackVerified = json["verified"] as? Bool ?? false
             if awaitingReceipt == id {
                 message = "PC đã nhận file và chuẩn bị cho phép tải xuống."
             }
@@ -698,115 +699,174 @@ final class BSendOnlineModel: ObservableObject {
             message = "Hãy chọn file và đợi PC kết nối."
             return
         }
+        queuedOutgoing = files
+        for file in files where outgoingTransferIDs[file.id] == nil {
+            outgoingTransferIDs[file.id] = UUID().uuidString.lowercased()
+        }
+        runQueuedUploads()
+    }
+
+    private func autoResumeOutgoingIfPossible() {
+        guard !busy, pairingApproved, connected, peerOnline,
+              !queuedOutgoing.isEmpty else { return }
+        message = "Smart Resume: đang nối tiếp file chưa gửi xong..."
+        runQueuedUploads()
+    }
+
+    private func runQueuedUploads() {
+        guard maySend, !queuedOutgoing.isEmpty else { return }
         busy = true
         let marker = sessionMarker
         uploadTask = Task { [weak self] in
             guard let self else { return }
             do {
-                for file in files {
+                while let file = self.queuedOutgoing.first {
                     try Task.checkCancellation()
                     guard marker == self.sessionMarker else { return }
-                    guard file.size >= 0 else { throw NSError(domain: "BSend", code: 4, userInfo: [
-                        NSLocalizedDescriptionKey: "Không xác định được dung lượng file."
-                    ]) }
-                    let id = UUID().uuidString.lowercased()
-                    self.progressTitle = "iPhone → PC: " + file.name
+                    guard file.size >= 0 else {
+                        throw NSError(domain:"BSend",code:4,userInfo:[
+                            NSLocalizedDescriptionKey:"Dung lượng file không hợp lệ."
+                        ])
+                    }
+                    let id = self.outgoingTransferIDs[file.id] ?? UUID().uuidString.lowercased()
+                    self.outgoingTransferIDs[file.id] = id
+                    self.progressTitle = "SHA-256: " + file.name
                     self.progress = 0
                     self.uploadMBps = 0
                     self.remainingSeconds = 0
                     self.sentBytes = 0
                     self.totalBytes = file.size
+                    let sha256 = try Self.fileSHA256(file.url)
+                    guard marker == self.sessionMarker else { return }
+                    self.progressTitle = "iPhone → PC: " + file.name
+                    self.awaitingReceipt = id
+                    self.acknowledgedReceipt = nil
+                    self.ackVerified = false
+                    self.pendingProgressId = id
+                    self.progressAcknowledged = 0
+                    self.remoteCancelledTransfer = false
+                    self.readyID = nil
+                    self.readyOffset = nil
+                    try await self.sendControl([
+                        "type":"file-start","id":id,"name":file.name,
+                        "size":file.size,"sha256":sha256,"v":2
+                    ])
+                    // New v0.6.4 receiver responds with durable checkpoint.
+                    // Older browsers never send file-ready; fall back to offset 0.
+                    for _ in 0..<40 {
+                        if self.readyID == id { break }
+                        try Task.checkCancellation()
+                        guard marker == self.sessionMarker, self.peerOnline else {
+                            throw NSError(domain:"BSend",code:5,userInfo:[
+                                NSLocalizedDescriptionKey:"PC đã mất kết nối."
+                            ])
+                        }
+                        try await Task.sleep(for:.milliseconds(100))
+                    }
+                    let offset: Int64 = self.readyID == id ? (self.readyOffset ?? 0) : 0
+                    guard offset >= 0 && offset <= file.size,
+                          offset == file.size || offset % Int64(Self.chunkSize) == 0 else {
+                        throw NSError(domain:"BSend",code:16,userInfo:[
+                            NSLocalizedDescriptionKey:"Checkpoint từ PC không hợp lệ."
+                        ])
+                    }
+                    let handle = try FileHandle(forReadingFrom:file.url)
+                    defer { try? handle.close() }
+                    try handle.seek(toOffset:UInt64(offset))
+                    self.progressAcknowledged = offset
+                    self.progress = file.size == 0 ? 1 : Double(offset)/Double(file.size)
+                    self.sentBytes = offset
+                    self.message = offset > 0
+                        ? "↻ Smart Resume: tiếp tục từ \(ByteCountFormatter.string(fromByteCount:offset,countStyle:.file))"
+                        : "Đang gửi file và kiểm tra SHA-256..."
                     let uploadStart = Date()
                     var lastStatsUpdate = Date.distantPast
                     var targetWindow = self.turboMode == "Turbo" ? 96 :
                         (self.turboMode == "Ổn định" ? 16 : 32)
-                    self.awaitingReceipt = id
-                    self.acknowledgedReceipt = nil
-                    self.pendingProgressId = id
-                    self.progressAcknowledged = 0
-                    self.remoteCancelledTransfer = false
-                    try await self.sendControl([
-                        "type": "file-start", "id": id,
-                        "name": file.name, "size": file.size
-                    ])
-                    let handle = try FileHandle(forReadingFrom: file.url)
-                    defer { try? handle.close() }
-                    var sent: Int64 = 0
+                    var sent = offset
                     var chunksSent = 0
-                    while true {
+                    while let chunk = try handle.read(upToCount:Self.chunkSize), !chunk.isEmpty {
                         try Task.checkCancellation()
                         if self.remoteCancelledTransfer {
-                            throw NSError(domain: "BSend", code: 14, userInfo: [
-                                NSLocalizedDescriptionKey: "PC không nhận được file. Chọn thư mục lưu trên PC nếu gửi file lớn."
+                            throw NSError(domain:"BSend",code:14,userInfo:[
+                                NSLocalizedDescriptionKey:"Máy nhận từ chối file."
                             ])
                         }
                         guard marker == self.sessionMarker, self.peerOnline else {
-                            throw NSError(domain: "BSend", code: 5, userInfo: [
-                                NSLocalizedDescriptionKey: "Đã mất kết nối PC."
+                            throw NSError(domain:"BSend",code:5,userInfo:[
+                                NSLocalizedDescriptionKey:"Mất kết nối. File được giữ để Smart Resume."
                             ])
                         }
-                        guard let chunk = try handle.read(upToCount: Self.chunkSize), !chunk.isEmpty else { break }
                         try await self.sendBinary(chunk)
                         sent += Int64(chunk.count)
                         chunksSent += 1
-                        self.progress = file.size == 0 ? 1 : Double(sent) / Double(file.size)
-                        if Date().timeIntervalSince(lastStatsUpdate) > 0.25 || sent == file.size {
-                            let elapsed = max(0.01, Date().timeIntervalSince(uploadStart))
+                        self.progress = file.size == 0 ? 1 : Double(sent)/Double(file.size)
+                        if Date().timeIntervalSince(lastStatsUpdate)>0.25 || sent == file.size {
+                            let elapsed = max(0.01,Date().timeIntervalSince(uploadStart))
+                            let delta = max(0,sent-offset)
                             self.sentBytes = sent
-                            self.uploadMBps = Double(sent) / elapsed / 1_048_576
-                            self.remainingSeconds = self.uploadMBps > 0 ?
-                                Double(max(0, file.size - sent)) / (self.uploadMBps * 1_048_576) : 0
+                            self.uploadMBps = Double(delta)/elapsed/1_048_576
+                            self.remainingSeconds = self.uploadMBps > 0
+                                ? Double(max(0,file.size-sent))/(self.uploadMBps*1_048_576):0
                             lastStatsUpdate = Date()
                         }
-                        // 16..128 encrypted frames are in flight, with adaptive
-                        // ACK-controlled pacing. Each receiver ACKs every 16 frames.
                         if chunksSent % targetWindow == 0 {
-                            let roundTripStart = Date()
-                            var attempts = 0
+                            let roundTrip = Date()
+                            var attempts=0
                             while self.progressAcknowledged < sent {
                                 try Task.checkCancellation()
-                                guard self.peerOnline, marker == self.sessionMarker, !self.remoteCancelledTransfer else {
-                                    throw NSError(domain: "BSend", code: 5, userInfo: [
-                                        NSLocalizedDescriptionKey: "Mất kết nối khi chuyển file."
+                                guard marker == self.sessionMarker,self.peerOnline,
+                                      !self.remoteCancelledTransfer else {
+                                    throw NSError(domain:"BSend",code:5,userInfo:[
+                                        NSLocalizedDescriptionKey:"Mất kết nối giữa chừng."
                                     ])
                                 }
-                                try await Task.sleep(for: .milliseconds(100))
+                                try await Task.sleep(for:.milliseconds(100))
                                 attempts += 1
-                                if attempts > 900 { throw NSError(domain: "BSend", code: 13, userInfo: [
-                                    NSLocalizedDescriptionKey: "PC không xác nhận tiến độ trong 90 giây."
-                                ]) }
+                                if attempts > 900 {
+                                    throw NSError(domain:"BSend",code:13,userInfo:[
+                                        NSLocalizedDescriptionKey:"Không nhận checkpoint trong 90 giây."
+                                    ])
+                                }
                             }
                             if self.turboMode == "Tự động" {
-                                let ackSeconds = Date().timeIntervalSince(roundTripStart)
-                                if ackSeconds < 0.6 { targetWindow = min(128, targetWindow * 2) }
-                                else if ackSeconds > 2.5 { targetWindow = max(16, targetWindow / 2) }
+                                let roundTripSeconds = Date().timeIntervalSince(roundTrip)
+                                if roundTripSeconds<0.6 { targetWindow=min(128,targetWindow*2) }
+                                else if roundTripSeconds>2.5 { targetWindow=max(16,targetWindow/2) }
                             }
                         }
                         await Task.yield()
                     }
-                    try await self.sendControl(["type": "file-end", "id": id])
-                    self.message = "Đã gửi đủ dữ liệu; chờ PC xác nhận nhận file..."
-                    // An acknowledgment means PC assembled the blob; it does not prove a user saved it to disk.
+                    try await self.sendControl(["type":"file-end","id":id,"sha256":sha256])
+                    self.message = "Đã gửi hết; đang xác thực SHA-256 trên thiết bị nhận..."
                     for _ in 0..<240 {
-                        if self.acknowledgedReceipt == id { break }
+                        if self.acknowledgedReceipt == id || self.remoteCancelledTransfer { break }
                         try Task.checkCancellation()
-                        try await Task.sleep(for: .milliseconds(500))
+                        try await Task.sleep(for:.milliseconds(500))
                     }
                     guard self.acknowledgedReceipt == id else {
-                        throw NSError(domain: "BSend", code: 6, userInfo: [
-                            NSLocalizedDescriptionKey: "PC chưa xác nhận nhận đủ file trong 120 giây."
+                        throw NSError(domain:"BSend",code:6,userInfo:[
+                            NSLocalizedDescriptionKey:"Máy nhận chưa xác nhận file trong 120 giây."
                         ])
                     }
-                    self.message = "PC đã nhận file \(file.name). Đã xóa bản sao gửi tạm khỏi B Send."
+                    self.message = self.ackVerified
+                        ? "✓ SHA-256 trùng khớp. PC đã nhận \(file.name)."
+                        : "PC đã nhận \(file.name) (máy nhận cũ, chưa xác minh SHA-256)."
                     try? handle.close()
                     self.didUpload?(file.id)
+                    self.queuedOutgoing.removeFirst()
+                    self.outgoingTransferIDs.removeValue(forKey:file.id)
                     self.awaitingReceipt = nil
                     self.pendingProgressId = nil
                 }
             } catch {
                 if marker == self.sessionMarker {
-                    try? await self.sendControl(["type": "file-cancel"])
-                    self.message = "Lỗi gửi Online: \(error.localizedDescription)"
+                    if self.remoteCancelledTransfer {
+                        self.message = "Máy nhận từ chối file; không tự gửi lại."
+                        self.queuedOutgoing.removeAll()
+                    } else {
+                        self.message = "Tạm dừng: \(error.localizedDescription) Mở lại kết nối để tiếp tục."
+                    }
                 }
             }
             if marker == self.sessionMarker {
