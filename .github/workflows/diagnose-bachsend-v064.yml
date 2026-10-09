@@ -23,7 +23,9 @@ jobs:
               console.log(path,"status",response.status,"bytes",text.length,
                 "v063",text.includes("v0.6.3 Mobile Receive"),
                 "v064",text.includes("v0.6.4 Smart Resume"),
-                "SHA",text.includes("class BSendSHA256"),
+                "SHA-alias",text.includes("const BSendSHA256 = ("),
+                "SHA-class",text.includes("class BSendSHA256"),
+                "SHA-marker",text.includes("BSEND_SHA256_IMPL_PLACEHOLDER"),
                 "Ready",text.includes('type:"file-ready"'),
                 "reason",text.includes('reason:"sha256-mismatch"'));
               if(!response.ok)console.log("non-200 prefix",text.slice(0,180));
