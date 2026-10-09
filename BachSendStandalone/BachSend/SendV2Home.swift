@@ -203,7 +203,7 @@ struct SendV2Home: View {
                 VStack(alignment: .leading, spacing: 10) {
                     HStack {
                         Image(systemName: "lock.shield.fill").foregroundStyle(.green)
-                        Text("Ghép nối nhanh · Mã hóa đầu cuối")
+                        Text("Phòng riêng từng iPhone · Mã hóa đầu cuối")
                             .font(.system(size: 12, weight: .semibold))
                         Spacer()
                         Text("AES-256-GCM").font(.system(size: 10))
@@ -214,33 +214,52 @@ struct SendV2Home: View {
                             Label("ĐÃ MỞ CHIA SẺ ONLINE", systemImage: "checkmark.shield.fill")
                                 .font(.system(size: 11, weight: .semibold))
                                 .foregroundStyle(.green)
-                            Text("Không cần nhập mã ghép nối")
+                            Text("Link riêng cho iPhone này")
                                 .font(.system(size: 17, weight: .bold, design: .rounded))
                                 .foregroundStyle(SendStyle.accent)
-                            Text("Trên máy tính, mở trang B Send và bấm Kết nối. iPhone sẽ hiện yêu cầu để bạn chấp nhận.")
+                            Text("Trên PC, mở link riêng một lần để lưu thiết bị. Từ lần sau chỉ cần chọn đúng iPhone. Lần đầu kết nối vẫn cần Chấp nhận.")
                                 .font(.system(size: 11))
                                 .foregroundStyle(SendStyle.secondary)
                                 .multilineTextAlignment(.center)
                                 .fixedSize(horizontal: false, vertical: true)
-                            SendQR(text: BSendOnlineModel.relay)
-                                .frame(width: 154, height: 154)
-                                .padding(8)
-                                .background(.white, in: RoundedRectangle(cornerRadius: 13))
-                            Button {
-                                UIPasteboard.general.string = BSendOnlineModel.relay
-                                copied = true
-                            } label: {
-                                Label(copied ? "Đã sao chép" : "Sao chép địa chỉ web",
-                                      systemImage: copied ? "checkmark" : "doc.on.doc")
-                                    .font(.system(size: 11, weight: .semibold))
-                                    .frame(maxWidth: .infinity).frame(height: 38)
+                            if let link = online.privateDeviceURL {
+                                SendQR(text: link)
+                                    .frame(width: 154, height: 154)
+                                    .padding(8)
+                                    .background(.white, in: RoundedRectangle(cornerRadius: 13))
+                                Button {
+                                    UIPasteboard.general.string = link
+                                    copied = true
+                                } label: {
+                                    Label(copied ? "Đã sao chép link riêng" : "Sao chép link iPhone riêng",
+                                          systemImage: copied ? "checkmark" : "doc.on.doc")
+                                        .font(.system(size: 11, weight: .semibold))
+                                        .frame(maxWidth: .infinity).frame(height: 38)
+                                }
+                                .buttonStyle(.plain)
+                                .background(SendStyle.accent.opacity(0.15), in: RoundedRectangle(cornerRadius: 10))
+                                Label("Link này là chìa khóa thiết bị. Chỉ gửi cho PC hoặc bạn bè bạn tin tưởng.",
+                                      systemImage: "lock.shield.fill")
+                                    .font(.system(size: 10))
+                                    .foregroundStyle(.orange)
+                                    .multilineTextAlignment(.center)
                             }
-                            .buttonStyle(.plain)
-                            .background(SendStyle.accent.opacity(0.15), in: RoundedRectangle(cornerRadius: 10))
-                            Text("bachsend-relay.mrbach222.workers.dev")
-                                .font(.system(size: 10, design: .monospaced))
-                                .foregroundStyle(SendStyle.secondary)
-                                .textSelection(.enabled)
+                            HStack(spacing: 8) {
+                                Text("Tên thiết bị")
+                                    .font(.system(size: 10))
+                                    .foregroundStyle(SendStyle.secondary)
+                                TextField("iPhone của tôi", text: $online.deviceName)
+                                    .font(.system(size: 12))
+                                    .textInputAutocapitalization(.words)
+                                    .autocorrectionDisabled()
+                                    .submitLabel(.done)
+                                    .onSubmit {
+                                        UserDefaults.standard.set(String(online.deviceName.prefix(48)),
+                                                                  forKey: "bsend.deviceDisplayName")
+                                    }
+                            }
+                            .padding(9)
+                            .background(SendStyle.accent.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
                             if let expiry = online.expiry {
                                 Label("Phiên hết hạn lúc \(expiry.formatted(date: .omitted, time: .shortened))",
                                       systemImage: "clock")
@@ -249,7 +268,7 @@ struct SendV2Home: View {
                             }
                         }.frame(maxWidth: .infinity)
                     } else {
-                        Label("Bật chia sẻ để máy tính tìm thấy iPhone. Bạn vẫn phải chấp nhận yêu cầu trên điện thoại.",
+                        Label("Bật chia sẻ để PC có link riêng kết nối đúng iPhone này. Bạn vẫn phải chấp nhận yêu cầu ở phiên mới.",
                               systemImage: "network")
                             .font(.system(size: 11))
                             .foregroundStyle(SendStyle.secondary)
@@ -811,7 +830,7 @@ struct SendV2Home: View {
                             .contentShape(RoundedRectangle(cornerRadius: 11))
                     }.buttonStyle(.plain)
                 }.sendGlass()
-                Text("B Send · v0.5.6 Quick Background · Bách App")
+                Text("B Send · v0.6.0 Private Device · Bách App")
                     .font(.system(size: 10)).foregroundStyle(SendStyle.secondary.opacity(0.75))
             }.padding(.horizontal, 19).padding(.top, 10)
         }
