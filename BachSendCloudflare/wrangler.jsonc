@@ -5,11 +5,27 @@
   "compatibility_date": "2026-10-01",
   "durable_objects": {
     "bindings": [
-      { "name": "SESSIONS", "class_name": "TransferRoom" }
+      {
+        "name": "SESSIONS",
+        "class_name": "TransferRoom"
+      },
+      {
+        "name": "CODES",
+        "class_name": "QuickCodes"
+      }
     ]
   },
   "exports": {
-    "TransferRoom": { "type": "durable-object", "storage": "sqlite" }
+    "TransferRoom": {
+      "type": "durable-object",
+      "storage": "sqlite"
+    },
+    "QuickCodes": {
+      "type": "durable-object",
+      "storage": "sqlite"
+    }
   },
-  "observability": { "enabled": true }
+  "observability": {
+    "enabled": true
+  }
 }
