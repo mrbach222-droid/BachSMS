@@ -39,7 +39,8 @@ struct SendV2Home: View {
     @State private var showFiles = false
     @State private var photoItems: [PhotosPickerItem] = []
     @State private var copied = false
-    @State private var showPrivateLinkQR = false
+    @State private var showAllSelectedFiles = false
+    @State private var showAllReceivedFiles = false
     @State private var askForgetPersonalPCs = false
     @State private var removeAll = false
     @State private var showPurgeEverything = false
@@ -81,11 +82,8 @@ struct SendV2Home: View {
             store.purgeExpiredIfIdle(onlineBusy: online.busy)
             store.refresh()
         }
-        .onChange(of: selectedTab) { _, _ in showPrivateLinkQR = false }
-        .onChange(of: transferMode) { _, _ in showPrivateLinkQR = false }
         .onChange(of: scenePhase) { _, phase in
             if phase == .background {
-                showPrivateLinkQR = false
                 online.pauseForBackground()
             }
             if phase == .active {
@@ -235,51 +233,28 @@ struct SendV2Home: View {
                                   systemImage: "lock.shield.fill")
                                 .font(.system(size: 15, weight: .bold, design: .rounded))
                                 .foregroundStyle(SendStyle.accent)
-                            Text("Personal Quick Connect: lần đầu Chấp nhận PC, lần sau chỉ cần mở web trên chính PC đó. B Send tự kết nối nếu iPhone đang bật chia sẻ Online.")
+                            Text("Personal Quick Connect: sao chép link một lần, Chấp nhận PC, sau đó web tự kết nối khi iPhone Online.")
                                 .font(.system(size: 11))
                                 .foregroundStyle(SendStyle.secondary)
                                 .multilineTextAlignment(.center)
                                 .fixedSize(horizontal: false, vertical: true)
                             if let link = online.privateDeviceURL {
                                 Button {
-                                    withAnimation(.easeInOut(duration: 0.18)) {
-                                        showPrivateLinkQR.toggle()
-                                    }
-                                    copied = false
+                                    UIPasteboard.general.string = link
+                                    copied = true
                                 } label: {
-                                    Label(showPrivateLinkQR ? "Ẩn mã liên kết" : "Thêm PC mới · Hiện mã QR",
-                                          systemImage: showPrivateLinkQR ? "eye.slash.fill" : "qrcode.viewfinder")
-                                        .font(.system(size: 12, weight: .semibold))
-                                        .frame(maxWidth: .infinity).frame(height: 42)
-                                        .foregroundStyle(SendStyle.accent)
-                                        .background(SendStyle.accent.opacity(0.12),
-                                                    in: RoundedRectangle(cornerRadius: 10))
+                                    Label(copied ? "Đã sao chép link" : "Sao chép link kết nối",
+                                          systemImage: copied ? "checkmark.circle.fill" : "doc.on.doc.fill")
+                                        .font(.system(size: 13, weight: .semibold))
+                                        .frame(maxWidth: .infinity).frame(height: 44)
+                                        .foregroundStyle(Color(red: 0.02, green: 0.14, blue: 0.22))
+                                        .background(SendStyle.accent, in: RoundedRectangle(cornerRadius: 12))
                                 }
                                 .buttonStyle(.plain)
-                                if showPrivateLinkQR {
-                                    SendQR(text: link)
-                                        .frame(width: 154, height: 154)
-                                        .padding(8)
-                                        .background(.white, in: RoundedRectangle(cornerRadius: 13))
-                                    Button {
-                                        UIPasteboard.general.string = link
-                                        copied = true
-                                        withAnimation { showPrivateLinkQR = false }
-                                    } label: {
-                                        Label(copied ? "Đã sao chép" : "Sao chép mã liên kết ẩn",
-                                              systemImage: copied ? "checkmark" : "doc.on.doc")
-                                            .font(.system(size: 11, weight: .semibold))
-                                            .frame(maxWidth: .infinity).frame(height: 38)
-                                    }
-                                    .buttonStyle(.plain)
-                                    .background(SendStyle.accent.opacity(0.15),
-                                                in: RoundedRectangle(cornerRadius: 10))
-                                    Label("Mã QR chứa khóa ghép nối bí mật. Chỉ quét trên PC tin tưởng. Bấm Ẩn ngay sau khi dùng.",
-                                          systemImage: "exclamationmark.shield")
-                                        .font(.system(size: 10))
-                                        .foregroundStyle(.orange)
-                                        .multilineTextAlignment(.center)
-                                }
+                                Text("Dán link trên thiết bị nhận để kết nối lần đầu. Chỉ chia sẻ link riêng với người tin cậy.")
+                                    .font(.system(size: 10))
+                                    .foregroundStyle(SendStyle.secondary)
+                                    .fixedSize(horizontal: false, vertical: true)
                             }
                             HStack(spacing: 8) {
                                 Text("Tên thiết bị")
@@ -478,9 +453,9 @@ struct SendV2Home: View {
                         .sendGlass()
                 } else {
                     LazyVStack(spacing: 7) {
-                        ForEach(store.outgoing) { file in
+                        ForEach(showAllSelectedFiles ? store.outgoing : Array(store.outgoing.prefix(6))) { file in
                             HStack(spacing: 10) {
-                                SendFileThumbnail(url: file.url, width: 46, height: 51)
+                                SendFileThumbnail(url: file.url, width: 39, height: 40)
                                 VStack(alignment: .leading, spacing: 4) {
                                     Text(file.name).font(.system(size: 11, weight: .medium))
                                         .lineLimit(1).truncationMode(.middle)
@@ -494,6 +469,16 @@ struct SendV2Home: View {
                                 }
                             }.sendGlass()
                         }
+                    }
+                    if store.outgoing.count > 6 {
+                        Button(showAllSelectedFiles ? "Thu gọn" : "Xem tất cả \(store.outgoing.count) file") {
+                            withAnimation(.easeInOut(duration: 0.18)) {
+                                showAllSelectedFiles.toggle()
+                            }
+                        }
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(SendStyle.accent)
+                        .frame(maxWidth: .infinity).padding(.vertical, 6)
                     }
                 }
                 Button {
@@ -576,9 +561,9 @@ struct SendV2Home: View {
                     }.sendGlass()
                 } else {
                     LazyVStack(spacing: 8) {
-                        ForEach(store.outgoing) { file in
+                        ForEach(showAllSelectedFiles ? store.outgoing : Array(store.outgoing.prefix(6))) { file in
                             HStack(spacing: 11) {
-                                SendFileThumbnail(url: file.url, width: 47, height: 52)
+                                SendFileThumbnail(url: file.url, width: 39, height: 40)
                                 VStack(alignment: .leading, spacing: 4) {
                                     Text(file.name).font(.system(size: 12, weight: .medium))
                                         .lineLimit(1).truncationMode(.middle)
@@ -595,6 +580,16 @@ struct SendV2Home: View {
                             .sendGlass()
                         }
                     }
+                    if store.outgoing.count > 6 {
+                        Button(showAllSelectedFiles ? "Thu gọn" : "Xem tất cả \(store.outgoing.count) file") {
+                            withAnimation(.easeInOut(duration: 0.18)) {
+                                showAllSelectedFiles.toggle()
+                            }
+                        }
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(SendStyle.accent)
+                        .frame(maxWidth: .infinity).padding(.vertical, 6)
+                    }
                 }
                 Text("PC có thể dùng dây LAN, iPhone dùng Wi-Fi cùng router. Giữ B Send mở khi truyền.")
                     .font(.system(size: 10)).foregroundStyle(SendStyle.secondary)
@@ -603,38 +598,33 @@ struct SendV2Home: View {
         }
     }
     private var qrCard: some View {
-        VStack(spacing: 10) {
+        VStack(alignment: .leading, spacing: 9) {
             HStack {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(store.active ? "Quét QR để nhận file" : "Chia sẻ qua Wi-Fi")
-                        .font(.system(size: 15, weight: .semibold, design: .rounded))
-                    Text(store.active ? "Mở Camera trên thiết bị nhận" : "Bật chia sẻ để tạo mã QR")
-                        .font(.system(size: 10)).foregroundStyle(SendStyle.secondary)
-                }
-                Spacer()
+                Text("Chia sẻ qua Wi-Fi nội bộ")
+                    .font(.system(size: 15, weight: .semibold, design: .rounded))
+                Spacer(minLength: 0)
                 Text(store.active ? "ĐANG CHIA SẺ" : "SẴN SÀNG")
                     .font(.system(size: 9, weight: .bold))
-                    .tracking(0.6)
                     .foregroundStyle(store.active ? Color.green : SendStyle.accent)
-                    .padding(.horizontal, 8).padding(.vertical, 6)
-                    .background(.white.opacity(0.07), in: Capsule())
             }
             if let url = store.shareURL {
-                SendQR(text: url)
-                    .frame(width: 150, height: 150)
-                    .padding(9)
-                    .background(.white, in: RoundedRectangle(cornerRadius: 13))
-                    .accessibilityLabel("Mã QR chia sẻ file qua Wi-Fi")
-                Text("Chỉ dùng trong phiên chia sẻ đang mở")
+                Button {
+                    UIPasteboard.general.string = url
+                    copied = true
+                } label: {
+                    Label(copied ? "Đã sao chép link LAN" : "Sao chép link LAN",
+                          systemImage: copied ? "checkmark.circle.fill" : "doc.on.doc.fill")
+                        .font(.system(size: 12, weight: .semibold))
+                        .frame(maxWidth: .infinity).frame(height: 42)
+                        .foregroundStyle(Color(red: 0.02, green: 0.14, blue: 0.22))
+                        .background(SendStyle.accent, in: RoundedRectangle(cornerRadius: 11))
+                }
+                .buttonStyle(.plain)
+                Text("Dán link trên thiết bị nhận cùng mạng Wi-Fi/LAN.")
                     .font(.system(size: 10)).foregroundStyle(SendStyle.secondary)
             } else {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 16).fill(SendStyle.accent.opacity(0.07))
-                    Image(systemName: "qrcode")
-                        .font(.system(size: 74, weight: .ultraLight))
-                        .foregroundStyle(SendStyle.accent.opacity(0.70))
-                }
-                .frame(maxWidth: .infinity).frame(height: 104)
+                Label("Bật chia sẻ để lấy link LAN", systemImage: "link")
+                    .font(.system(size: 11)).foregroundStyle(SendStyle.secondary)
             }
             if let progress = store.transferProgress {
                 VStack(alignment: .leading, spacing: 6) {
@@ -650,9 +640,7 @@ struct SendV2Home: View {
             }
             if !store.message.isEmpty {
                 Text(store.message).font(.system(size: 10))
-                    .foregroundStyle(SendStyle.secondary)
-                    .multilineTextAlignment(.center)
-                    .lineLimit(3)
+                    .foregroundStyle(SendStyle.secondary).lineLimit(3)
             }
         }
         .frame(maxWidth: .infinity).sendGlass()
@@ -791,9 +779,9 @@ struct SendV2Home: View {
                         .sendGlass()
                 }
                 LazyVStack(spacing: 8) {
-                    ForEach(store.incoming) { file in
+                    ForEach(showAllReceivedFiles ? store.incoming : Array(store.incoming.prefix(7))) { file in
                         HStack(spacing: 11) {
-                            SendFileThumbnail(url: file.url, width: 44, height: 48)
+                            SendFileThumbnail(url: file.url, width: 39, height: 40)
                             VStack(alignment: .leading, spacing: 4) {
                                 Text(file.name).font(.system(size: 12, weight: .medium))
                                     .lineLimit(1).truncationMode(.middle)
@@ -822,6 +810,16 @@ struct SendV2Home: View {
                                 Image(systemName: "trash")
                             }
                         }.sendGlass()
+                    }
+                    if store.incoming.count > 7 {
+                        Button(showAllReceivedFiles ? "Thu gọn" : "Xem tất cả \(store.incoming.count) file") {
+                            withAnimation(.easeInOut(duration: 0.18)) {
+                                showAllReceivedFiles.toggle()
+                            }
+                        }
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(SendStyle.accent)
+                        .frame(maxWidth: .infinity).padding(.vertical, 6)
                     }
                 }
             }.padding(.horizontal, 19).padding(.top, 10).padding(.bottom, 24)
@@ -875,7 +873,7 @@ struct SendV2Home: View {
                             .contentShape(RoundedRectangle(cornerRadius: 11))
                     }.buttonStyle(.plain)
                 }.sendGlass()
-                Text("B Send · v0.6.4 Smart Resume & SHA-256 · Bách App")
+                Text("B Send · v0.6.5 Compact List · Bách App")
                     .font(.system(size: 10)).foregroundStyle(SendStyle.secondary.opacity(0.75))
             }.padding(.horizontal, 19).padding(.top, 10)
         }
