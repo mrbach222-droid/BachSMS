@@ -1,0 +1,37 @@
+name: Build B Send v0.5.4 Large Transfer iOS IPA
+on:
+  push:
+    branches: [bachsend-v054-large-transfer]
+    paths:
+      - 'BachSendStandalone/**'
+      - '.github/workflows/build-bachsend-v054.yml'
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prepare project
+        working-directory: BachSendStandalone
+        run: |
+          brew install xcodegen
+          python3 generate_icon.py
+          xcodegen generate
+      - name: Build B Send v0.5.4
+        working-directory: BachSendStandalone
+        run: xcodebuild -project BachSend.xcodeproj -scheme BachSend -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath build CODE_SIGNING_ALLOWED=NO build
+      - name: Package unsigned IPA
+        working-directory: BachSendStandalone
+        run: |
+          mkdir -p Payload
+          cp -R build/Build/Products/Release-iphoneos/BachSend.app Payload/
+          test -f Payload/BachSend.app/BachSend
+          test -f Payload/BachSend.app/Info.plist
+          /usr/libexec/PlistBuddy -c 'Print :NSPhotoLibraryAddUsageDescription' Payload/BachSend.app/Info.plist
+          zip -qry BachSend-v0.5.4-LargeTransfer-unsigned.ipa Payload
+          unzip -t BachSend-v0.5.4-LargeTransfer-unsigned.ipa | tail -n 3
+      - uses: actions/upload-artifact@v4
+        with:
+          name: BachSend-v0.5.4-LargeTransfer-unsigned
+          path: BachSendStandalone/BachSend-v0.5.4-LargeTransfer-unsigned.ipa
+          retention-days: 30
