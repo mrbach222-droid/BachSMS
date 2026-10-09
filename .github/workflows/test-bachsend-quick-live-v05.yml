@@ -1,0 +1,18 @@
+name: Live B Send v0.5 Quick Connect
+on:
+  push:
+    branches: [bachsend-quick-v05]
+    paths:
+      - 'BachSendCloudflare/test/live-quick-v05.mjs'
+      - '.github/workflows/test-bachsend-quick-live-v05.yml'
+  workflow_dispatch:
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Test deployed Worker, short pairing, ECDH, AES-GCM and browser
+        run: node BachSendCloudflare/test/live-quick-v05.mjs
