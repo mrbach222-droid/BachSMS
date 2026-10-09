@@ -51,6 +51,7 @@ final class BSendOnlineModel: ObservableObject {
     private var incomingChunks = 0
     private var pendingProgressId: String?
     private var progressAcknowledged: Int64 = 0
+    private var remoteCancelledTransfer = false
     private var awaitingReceipt: String?
     private var acknowledgedReceipt: String?
     var didReceive: (() -> Void)?
@@ -372,7 +373,7 @@ final class BSendOnlineModel: ObservableObject {
             // configured transfer limit; it protects the user's device.
             let disk = (try? FileManager.default.attributesOfFileSystem(
                 forPath: SendModel.receivedDir.path)[.systemFreeSize] as? NSNumber)?.int64Value ?? 0
-            guard disk > 0 && disk >= size + 8 * 1024 * 1024 else {
+            guard disk > 8 * 1024 * 1024 && size <= disk - 8 * 1024 * 1024 else {
                 message = "iPhone không đủ dung lượng trống để nhận file."
                 try? await sendControl(["type": "file-cancel", "id": id, "reason": "disk-full"])
                 return
@@ -436,8 +437,9 @@ final class BSendOnlineModel: ObservableObject {
                 message = "PC đã nhận file và chuẩn bị cho phép tải xuống."
             }
         case "file-cancel":
+            if awaitingReceipt != nil { remoteCancelledTransfer = true }
             cleanupIncoming()
-            message = "PC đã hủy gửi file."
+            message = "Đầu bên kia đã hủy hoặc không đủ dung lượng nhận file."
         default: break
         }
     }
@@ -502,6 +504,7 @@ final class BSendOnlineModel: ObservableObject {
                     self.acknowledgedReceipt = nil
                     self.pendingProgressId = id
                     self.progressAcknowledged = 0
+                    self.remoteCancelledTransfer = false
                     try await self.sendControl([
                         "type": "file-start", "id": id,
                         "name": file.name, "size": file.size
@@ -512,6 +515,11 @@ final class BSendOnlineModel: ObservableObject {
                     var chunksSent = 0
                     while true {
                         try Task.checkCancellation()
+                        if self.remoteCancelledTransfer {
+                            throw NSError(domain: "BSend", code: 14, userInfo: [
+                                NSLocalizedDescriptionKey: "PC không nhận được file. Chọn thư mục lưu trên PC nếu gửi file lớn."
+                            ])
+                        }
                         guard marker == self.sessionMarker, self.peerOnline else {
                             throw NSError(domain: "BSend", code: 5, userInfo: [
                                 NSLocalizedDescriptionKey: "Đã mất kết nối PC."
@@ -527,7 +535,7 @@ final class BSendOnlineModel: ObservableObject {
                             var attempts = 0
                             while self.progressAcknowledged < sent {
                                 try Task.checkCancellation()
-                                guard self.peerOnline, marker == self.sessionMarker else {
+                                guard self.peerOnline, marker == self.sessionMarker, !self.remoteCancelledTransfer else {
                                     throw NSError(domain: "BSend", code: 5, userInfo: [
                                         NSLocalizedDescriptionKey: "Mất kết nối khi chuyển file."
                                     ])
