@@ -73,24 +73,16 @@ struct SendV2Home: View {
         }
         .tint(SendStyle.accent)
         .preferredColorScheme(.dark)
-        .fileImporter(
-            isPresented: $showFiles,
-            allowedContentTypes: [
-                .item, .data, .content, .archive, .pdf, .image, .movie,
-                UTType(filenameExtension: "ipa", conformingTo: .data) ?? .data,
-                UTType(filenameExtension: "zip", conformingTo: .data) ?? .data
-            ],
-            allowsMultipleSelection: true
-        ) { result in
-            switch result {
-            case .success(let urls):
-                if urls.isEmpty {
-                    store.message = "Chưa chọn file. Tích chọn tệp rồi nhấn Mở."
-                } else {
-                    store.add(urls)
-                }
-            case .failure(let error): store.message = "Không thể chọn file: \(error.localizedDescription)"
-            }
+        .sheet(isPresented: $showFiles) {
+            BSendNativeFilePicker(
+                onPick: { url in
+                    // Copy to our local staging directory before the iOS
+                    // picker dismisses its temporary iCloud/Files document.
+                    store.add([url])
+                    showFiles = false
+                },
+                onCancel: { showFiles = false }
+            )
         }
         .onChange(of: photoItems) { newItems in
             guard !newItems.isEmpty else { return }
@@ -341,6 +333,10 @@ struct SendV2Home: View {
                     }
                     .background(SendStyle.card, in: RoundedRectangle(cornerRadius: 12))
                 }
+                Text("Chọn một tệp mỗi lần · có thể chọn tiếp để thêm nhiều tệp.")
+                    .font(.system(size: 10))
+                    .foregroundStyle(SendStyle.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
                 Text(store.message)
                     .font(.system(size: 10))
                     .foregroundStyle(SendStyle.secondary)
