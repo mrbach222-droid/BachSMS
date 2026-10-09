@@ -86,6 +86,7 @@ assert(page.includes('reason:"sha256-mismatch"') && page.includes("receivedSHA")
        "Hash mismatch must reject bytes and never expose the file");
 assert(page.includes("pendingOutgoingFiles") && page.includes("resumeQueuedBrowserUpload"),
        "Browser sender must retry its queued file after reconnect");
-assert(page.includes("updateIncomingView(incoming)") && page.includes('a.textContent="⬇ Tải xuống"'),
-       "Safari direct receive must remain available");
+assert(page.includes("updateIncomingView(incoming)") && page.includes('a.textContent=mobileBrowser?"⬇":"⬇ Tải xuống"') &&
+       page.includes("share.textContent="),
+       "Safari direct receive, download and share must remain available");
 console.log("PASS B Send v0.6.5 Compact List, Safari download/share, Smart Resume, SHA-256 and Personal Quick Connect");
