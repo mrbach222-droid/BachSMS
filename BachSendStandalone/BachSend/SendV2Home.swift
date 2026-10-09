@@ -31,6 +31,9 @@ private extension View {
 
 struct SendV2Home: View {
     @StateObject private var store = SendModel()
+    @StateObject private var online = BSendOnlineModel()
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var transferMode = 1
     @State private var selectedTab = 0
     @State private var showFiles = false
     @State private var photoItems: [PhotosPickerItem] = []
@@ -49,7 +52,7 @@ struct SendV2Home: View {
                 topBar
                 Group {
                     switch selectedTab {
-                    case 0: sharePage
+                    case 0: transferMode == 1 ? onlinePage : sharePage
                     case 1: receivedPage
                     default: settingsPage
                     }
@@ -57,6 +60,10 @@ struct SendV2Home: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 bottomBar
             }
+        }
+        .onAppear { online.didReceive = { store.refresh() } }
+        .onChange(of: scenePhase) { phase in
+            if phase == .background { online.stop() }
         }
         .tint(SendStyle.accent)
         .preferredColorScheme(.dark)
@@ -101,15 +108,15 @@ struct SendV2Home: View {
             }.frame(width: 43, height: 43)
             VStack(alignment: .leading, spacing: 1) {
                 Text("B Send").font(.system(size: 20, weight: .bold, design: .rounded))
-                Text("BÁCH APP  /  LOCAL TRANSFER")
+                Text("BÁCH APP  /  HYBRID TRANSFER")
                     .font(.system(size: 9, weight: .medium, design: .rounded))
                     .tracking(1.2).foregroundStyle(SendStyle.secondary)
             }
             Spacer(minLength: 0)
             HStack(spacing: 5) {
-                Circle().fill(store.active ? Color.green : SendStyle.secondary)
+                Circle().fill(transferMode == 1 ? (online.connected ? Color.green : SendStyle.secondary) : (store.active ? Color.green : SendStyle.secondary))
                     .frame(width: 6, height: 6)
-                Text(store.active ? "Đang mở" : "Ngoại tuyến")
+                Text(transferMode == 1 ? (online.connected ? "Online" : "Chờ mở") : (store.active ? "LAN mở" : "LAN tắt"))
                     .font(.system(size: 10, weight: .medium))
                     .foregroundStyle(SendStyle.secondary)
             }
@@ -117,6 +124,220 @@ struct SendV2Home: View {
             .background(.white.opacity(0.06), in: Capsule())
         }
         .padding(.horizontal, 19).padding(.top, 7).padding(.bottom, 11)
+    }
+
+    private var modePicker: some View {
+        HStack(spacing: 7) {
+            ForEach(0..<2, id: \.self) { idx in
+                Button {
+                    transferMode = idx
+                } label: {
+                    Label(idx == 1 ? "Online · Khác mạng" : "LAN · Cùng mạng",
+                          systemImage: idx == 1 ? "globe" : "wifi")
+                        .font(.system(size: 11, weight: .semibold))
+                        .frame(maxWidth: .infinity).frame(height: 38)
+                        .foregroundStyle(transferMode == idx ?
+                            Color(red: 0.01, green: 0.1, blue: 0.18) : SendStyle.secondary)
+                        .background(transferMode == idx ? SendStyle.accent : SendStyle.card,
+                                    in: RoundedRectangle(cornerRadius: 12))
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    private var onlinePage: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 13) {
+                modePicker
+                HStack(spacing: 9) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Truyền file qua Internet.")
+                            .font(.system(size: 19, weight: .bold, design: .rounded))
+                        Text("PC dùng LAN, iPhone dùng Wi-Fi riêng vẫn kết nối.")
+                            .font(.system(size: 11)).foregroundStyle(SendStyle.secondary)
+                    }
+                    Spacer(minLength: 0)
+                    Image(systemName: "globe.asia.australia.fill")
+                        .font(.system(size: 25, weight: .ultraLight)).foregroundStyle(SendStyle.accent)
+                }
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack {
+                        Image(systemName: "lock.shield.fill").foregroundStyle(.green)
+                        Text("Ghép nối mã hóa đầu cuối")
+                            .font(.system(size: 12, weight: .semibold))
+                        Spacer()
+                        Text("AES-256-GCM").font(.system(size: 10))
+                            .foregroundStyle(SendStyle.accent)
+                    }
+                    if let link = online.shareURL {
+                        SendQR(text: link)
+                            .frame(width: 154, height: 154)
+                            .padding(8)
+                            .background(Color.white, in: RoundedRectangle(cornerRadius: 13))
+                            .frame(maxWidth: .infinity)
+                        Text("Trên PC, mở nguyên đường dẫn bên dưới bằng Chrome hoặc Edge.")
+                            .font(.system(size: 11))
+                            .foregroundStyle(SendStyle.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                        HStack(spacing: 9) {
+                            Text(link)
+                                .font(.system(size: 10, design: .monospaced))
+                                .foregroundStyle(SendStyle.accent)
+                                .lineLimit(2).truncationMode(.middle)
+                                .textSelection(.enabled)
+                            Spacer(minLength: 1)
+                            Button {
+                                UIPasteboard.general.string = link
+                                copied = true
+                            } label: {
+                                Label(copied ? "Đã chép" : "Sao chép",
+                                      systemImage: copied ? "checkmark" : "doc.on.doc")
+                                    .font(.system(size: 11, weight: .semibold))
+                                    .fixedSize()
+                            }
+                        }
+                        .padding(10)
+                        .background(.black.opacity(0.22), in: RoundedRectangle(cornerRadius: 10))
+                        if let expiry = online.expiry {
+                            Label("Link hết hạn: \(expiry.formatted(date: .omitted, time: .shortened))",
+                                  systemImage: "clock")
+                                .font(.system(size: 10))
+                                .foregroundStyle(SendStyle.secondary)
+                        }
+                    } else {
+                        HStack(spacing: 10) {
+                            Image(systemName: "qrcode")
+                                .font(.system(size: 27, weight: .ultraLight))
+                                .foregroundStyle(SendStyle.accent)
+                            Text("Tạo phiên để có link HTTPS riêng và mã QR ghép nối.")
+                                .font(.system(size: 11))
+                                .foregroundStyle(SendStyle.secondary)
+                        }
+                        .padding(.vertical, 10)
+                    }
+                    HStack {
+                        Circle()
+                            .fill(online.peerOnline ? Color.green :
+                                  (online.connected ? SendStyle.accent : SendStyle.secondary))
+                            .frame(width: 7, height: 7)
+                        Text(online.peerOnline ? "PC đã kết nối" :
+                             (online.connected ? "Đang chờ PC mở link" :
+                              (online.connecting ? "Đang kết nối Cloudflare..." : "Chưa mở phiên")))
+                            .font(.system(size: 11, weight: .medium))
+                        Spacer()
+                    }
+                    Button {
+                        if online.canClose { online.stop() }
+                        else { online.start() }
+                    } label: {
+                        Label(online.canClose ? "Dừng chia sẻ Online" : "Tạo link Online",
+                              systemImage: online.canClose ? "stop.fill" : "link.badge.plus")
+                            .font(.system(size: 12, weight: .bold))
+                            .frame(maxWidth: .infinity).frame(height: 44)
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(online.canClose ? .white : Color(red: 0.01, green: 0.10, blue: 0.19))
+                    .background(online.canClose ? Color.red.opacity(0.7) : SendStyle.accent,
+                                in: RoundedRectangle(cornerRadius: 12))
+                    Text(online.message)
+                        .font(.system(size: 11))
+                        .foregroundStyle(SendStyle.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    if online.busy || online.progress > 0 {
+                        VStack(alignment: .leading, spacing: 5) {
+                            HStack {
+                                Text(online.progressTitle)
+                                    .lineLimit(1).truncationMode(.middle)
+                                Spacer()
+                                Text("\(Int(online.progress * 100))%")
+                                    .foregroundStyle(SendStyle.accent)
+                            }
+                            .font(.system(size: 10))
+                            ProgressView(value: online.progress).tint(SendStyle.accent)
+                        }
+                    }
+                }
+                .sendGlass()
+
+                HStack {
+                    Text("Chọn file để gửi Online")
+                        .font(.system(size: 15, weight: .semibold, design: .rounded))
+                    Spacer()
+                    Text("\(store.outgoing.count)")
+                        .font(.system(size: 11))
+                        .foregroundStyle(SendStyle.accent)
+                }
+                HStack(spacing: 9) {
+                    Button { showFiles = true } label: {
+                        Label("Chọn từ Tệp", systemImage: "folder.badge.plus")
+                            .font(.system(size: 12, weight: .semibold))
+                            .frame(maxWidth: .infinity).frame(height: 42)
+                    }
+                    .buttonStyle(.plain)
+                    .background(SendStyle.card, in: RoundedRectangle(cornerRadius: 12))
+                    PhotosPicker(selection: $photoItems, maxSelectionCount: 15,
+                                 matching: .any(of: [.images, .videos])) {
+                        Label("Chọn ảnh", systemImage: "photo.on.rectangle")
+                            .font(.system(size: 12, weight: .semibold))
+                            .frame(maxWidth: .infinity).frame(height: 42)
+                    }
+                    .background(SendStyle.card, in: RoundedRectangle(cornerRadius: 12))
+                }
+                if store.outgoing.isEmpty {
+                    Label("Chưa chọn file. Bản thử nghiệm giới hạn 50 MB/file.",
+                          systemImage: "doc.badge.plus")
+                        .font(.system(size: 11))
+                        .foregroundStyle(SendStyle.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .sendGlass()
+                } else {
+                    LazyVStack(spacing: 7) {
+                        ForEach(store.outgoing) { file in
+                            HStack(spacing: 10) {
+                                Image(systemName: icon(for: file.url))
+                                    .foregroundStyle(SendStyle.accent)
+                                    .frame(width: 25)
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(file.name).font(.system(size: 11, weight: .medium))
+                                        .lineLimit(1).truncationMode(.middle)
+                                    Text(ByteCountFormatter.string(fromByteCount: file.size, countStyle: .file))
+                                        .font(.system(size: 10)).foregroundStyle(SendStyle.secondary)
+                                }
+                                Spacer()
+                                Button { store.remove(file.id) } label: {
+                                    Image(systemName: "xmark.circle.fill")
+                                        .foregroundStyle(SendStyle.secondary)
+                                }
+                            }.sendGlass()
+                        }
+                    }
+                }
+                Button {
+                    online.send(files: store.outgoing)
+                } label: {
+                    Label("Gửi \(store.outgoing.count) file sang PC",
+                          systemImage: "paperplane.fill")
+                        .font(.system(size: 12, weight: .bold))
+                        .frame(maxWidth: .infinity).frame(height: 43)
+                }
+                .buttonStyle(.plain)
+                .disabled(!online.maySend || store.outgoing.isEmpty)
+                .foregroundStyle(Color(red: 0.01, green: 0.1, blue: 0.19))
+                .background(SendStyle.accent.opacity(online.maySend && !store.outgoing.isEmpty ? 1 : 0.4),
+                            in: RoundedRectangle(cornerRadius: 12))
+
+                Text("Bản thử nghiệm chưa qua kiểm toán bảo mật. Chỉ thử file không nhạy cảm; không gửi dữ liệu khách hàng hoặc tài liệu công ty.")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.orange)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text("Đổi ứng dụng hoặc khóa màn hình có thể ngắt phiên Online. Khi PC gửi file, mở tab Đã nhận để xem sau khi hoàn tất.")
+                    .font(.system(size: 10))
+                    .foregroundStyle(SendStyle.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(.horizontal, 19).padding(.top, 8).padding(.bottom, 25)
+        }
     }
 
     private var sharePage: some View {
@@ -134,6 +355,7 @@ struct SendV2Home: View {
                         .font(.system(size: 29, weight: .ultraLight))
                         .foregroundStyle(SendStyle.accent)
                 }
+                modePicker
                 qrCard
                 if let url = store.shareURL {
                     linkCard(url)
@@ -425,7 +647,7 @@ struct SendV2Home: View {
                     Text("File tối đa 1 GiB. Giữ B Send ở màn hình trước trong lúc truyền. Một số Wi-Fi công cộng chặn liên lạc giữa thiết bị.")
                         .font(.system(size: 11)).foregroundStyle(SendStyle.secondary)
                 }.sendGlass()
-                Text("B Send · v0.3 LAN · Bách App")
+                Text("B Send · v0.4 Hybrid (Preview) · Bách App")
                     .font(.system(size: 10)).foregroundStyle(SendStyle.secondary.opacity(0.75))
             }.padding(.horizontal, 19).padding(.top, 10)
         }
