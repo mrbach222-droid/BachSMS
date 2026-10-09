@@ -1,9 +1,9 @@
 import { DurableObject } from "cloudflare:workers";
 import browserPage from "./page.js";
 
-// B Send v0.4 technical preview: WSS with ephemeral rooms.
-// TLS transport only. End-to-end encryption is not implemented yet.
-// Do not use this preview for confidential or company data.
+// B Send v0.5.2: one-tap pairing uses short-lived rooms and explicit iPhone consent.
+// Payloads use session-derived AES-GCM; room discovery is restricted to one active
+// iPhone. As an un-audited preview, never transfer confidential company files.
 const TTL = 60 * 60 * 1000;
 const TOKEN_PATTERN = /^[a-f0-9]{64}$/;
 const ROOM_PATTERN = /^[a-f0-9]{32}$/;
@@ -39,10 +39,35 @@ export class QuickCodes extends DurableObject {
          !Number.isFinite(expiresAt))return result({error:"bad_data"},400);
       const old=await this.ctx.storage.get("code:"+code);
       if(old&&old.expiresAt>Date.now())return result({error:"collision"},409);
-      await this.ctx.storage.put("code:"+code,{room,guestToken,expiresAt});
+      await this.ctx.storage.put("code:"+code,{room,guestToken,expiresAt,createdAt:Date.now()});
       const alarm=await this.ctx.storage.getAlarm();
       if(!alarm||alarm>Date.now()+60000)await this.ctx.storage.setAlarm(Date.now()+60000);
       return result({ok:true});
+    }
+    if(url.pathname==="/connect-auto" && req.method==="GET"){
+      const ip=(req.headers.get("CF-Connecting-IP")||"unknown").slice(0,80);
+      const period=Math.floor(Date.now()/60000),rateKey="auto:"+ip+":"+period;
+      const hits=await this.ctx.storage.get(rateKey)||0;
+      if(hits>=6)return result({error:"rate_limited"},429);
+      await this.ctx.storage.put(rateKey,hits+1);
+      const now=Date.now();
+      const all=await this.ctx.storage.list({prefix:"code:"});
+      const available=[];
+      for(const [id,entry] of all){
+        if(entry.expiresAt<=now)continue;
+        const stub=this.env.SESSIONS.get(this.env.SESSIONS.idFromName(entry.room));
+        const presence=await stub.fetch(new Request("https://room.internal/presence"));
+        if(!presence.ok)continue;
+        const status=await presence.json();
+        if(status.ownerOnline && !status.guestOnline){
+          available.push({...entry,createdAt:entry.createdAt||0});
+        }
+      }
+      if(available.length===0)return result({error:"no_online_iphone"},404);
+      // Avoid connecting to an arbitrary user's iPhone when several are sharing.
+      if(available.length>1)return result({error:"multiple_iphones"},409);
+      const {room,guestToken,expiresAt}=available[0];
+      return result({room,guestToken,expiresAt});
     }
     const m=url.pathname.match(/^\/resolve\/([A-HJ-NP-Z2-9]{8})$/);
     if(m&&req.method==="GET"){
@@ -64,7 +89,7 @@ export class QuickCodes extends DurableObject {
       if(key.startsWith("code:")){
         if(value.expiresAt<=now)await this.ctx.storage.delete(key);
         else open=true;
-      }else if(key.startsWith("ip:")&&Number(key.split(":").at(-1))<period-3){
+      }else if((key.startsWith("ip:")||key.startsWith("auto:"))&&Number(key.split(":").at(-1))<period-3){
         await this.ctx.storage.delete(key);
       }
     }
@@ -88,6 +113,13 @@ export class TransferRoom extends DurableObject {
       });
       await this.ctx.storage.setAlarm(expiresAt);
       return result({ ok: true, expiresAt });
+    }
+    if(uri.pathname==="/presence" && request.method==="GET"){
+      const sockets=this.ctx.getWebSockets();
+      return result({
+        ownerOnline:sockets.some(s=>s.readyState===1&&s.deserializeAttachment()?.role==="owner"),
+        guestOnline:sockets.some(s=>s.readyState===1&&s.deserializeAttachment()?.role==="guest")
+      });
     }
     if (uri.pathname !== "/ws" || request.headers.get("Upgrade")?.toLowerCase() !== "websocket")
       return result({ error: "not_found" }, 404);
@@ -173,7 +205,7 @@ export default {
         }
       });
     if (url.pathname === "/api/health" && request.method === "GET")
-      return result({ status: "ready", version: "0.5-quick", transport: "wss", shortCodes: true });
+      return result({ status: "ready", version: "0.5.2-one-tap", transport: "wss", oneTap: true, shortCodes: true });
     if (url.pathname === "/api/session" && request.method === "POST") {
       const room = nonce(16), ownerToken = nonce(32), guestToken = nonce(32);
       const obj = env.SESSIONS.get(env.SESSIONS.idFromName(room));
@@ -202,6 +234,13 @@ export default {
           "/ws?role=owner&token=" + ownerToken,
         guestURL: url.origin + "/s/" + room + "#" + guestToken,
       }, 201);
+    }
+    if(url.pathname==="/api/auto-connect" && request.method==="GET"){
+      const dir=env.CODES.get(env.CODES.idFromName("quick-directory"));
+      const forwarded=new Request("https://directory.internal/connect-auto",{
+        headers:{"CF-Connecting-IP":request.headers.get("CF-Connecting-IP")||"unknown"}
+      });
+      return dir.fetch(forwarded);
     }
     const lookup=url.pathname.match(/^\/api\/code\/([A-HJ-NP-Z2-9]{8})$/);
     if(lookup&&request.method==="GET"){
