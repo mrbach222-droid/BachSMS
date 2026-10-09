@@ -1,0 +1,32 @@
+name: Diagnose B Send v0.6.4 Cloudflare Status
+on:
+  push:
+    branches: [bachsend-v064-smart-resume-sha256]
+    paths:
+      - '.github/workflows/diagnose-bachsend-v064.yml'
+  workflow_dispatch:
+jobs:
+  diagnostics:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Probe production Worker and print non-sensitive markers
+        run: |
+          node --input-type=module <<'NODE'
+          const base="https://bachsend-relay.mrbach222.workers.dev";
+          for(const path of ["/api/health","/"]){
+            try{
+              const response=await fetch(base+path,{cache:"no-store"});
+              const text=await response.text();
+              console.log(path,"status",response.status,"bytes",text.length,
+                "v063",text.includes("v0.6.3 Mobile Receive"),
+                "v064",text.includes("v0.6.4 Smart Resume"),
+                "SHA",text.includes("class BSendSHA256"),
+                "Ready",text.includes('type:"file-ready"'),
+                "reason",text.includes('reason:"sha256-mismatch"'));
+              if(!response.ok)console.log("non-200 prefix",text.slice(0,180));
+            }catch(e){console.log(path,"error",e.message)}
+          }
+          NODE
