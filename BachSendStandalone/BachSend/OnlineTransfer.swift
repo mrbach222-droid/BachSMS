@@ -125,29 +125,62 @@ final class BSendOnlineModel: ObservableObject {
 
     func stop() { stop(clearStatus: true) }
 
-    // iOS may suspend a normal WebSocket in the background. Do not deliberately
-    // close a healthy socket when Home is pressed. Preserve E2E pairing keys.
-    // A finite background task is used only for transfers that are in progress.
+    // Quick Background mode intentionally uses only Apple's finite background
+    // execution window. It does not register audio, VoIP or location modes.
+    // iOS decides the duration; 60 seconds is a testing goal, NOT a guarantee.
     private var isInBackground = false
     private var backgroundTransferTask: UIBackgroundTaskIdentifier = .invalid
+    private var backgroundGraceExpired = false
     private var reconnectTask: Task<Void, Never>?
     private var reconnectTries = 0
+    private var resumePingID: UUID?
+    @Published private(set) var lastBackgroundSeconds: Int = 0
+    @Published private(set) var backgroundHolding = false
+    private var enteredBackgroundAt: Date?
+
+    private var mayReconnectInCurrentState: Bool {
+        !isInBackground || (!backgroundGraceExpired && backgroundTransferTask != .invalid)
+    }
 
     func pauseForBackground() {
+        guard !isInBackground else { return }
         isInBackground = true
-        if busy && backgroundTransferTask == .invalid {
+        enteredBackgroundAt = Date()
+        backgroundGraceExpired = false
+
+        // v0.5.5 only requested a background task DURING transfers. That
+        // meant a user replying to a message while idle would be suspended.
+        // Start a finite task for ANY active paired/connecting session.
+        if ownerURL != nil && backgroundTransferTask == .invalid {
             backgroundTransferTask = UIApplication.shared.beginBackgroundTask(
-                withName: "B Send - Finishing transfer") { [weak self] in
-                Task { @MainActor [weak self] in self?.endTransferTime() }
+                withName: "B Send - Quick Background Online") { [weak self] in
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    self.backgroundGraceExpired = true
+                    self.backgroundHolding = false
+                    self.endTransferTime()
+                    if self.isInBackground {
+                        self.message = "iOS đã hết thời gian chạy nền. Phiên vẫn được giữ và tự nối lại khi mở B Send."
+                    }
+                }
             }
         }
-        if isActive {
-            message = "Phiên ghép nối vẫn được giữ. iOS có thể tạm ngưng đường truyền khi về màn hình chính."
+        backgroundHolding = backgroundTransferTask != .invalid
+        if ownerURL != nil {
+            message = backgroundHolding
+                ? "Đang giữ WebSocket trong thời gian chạy nền iOS cấp. PC có thể gửi khi kết nối còn hoạt động."
+                : "iOS không cấp thêm thời gian nền. Giữ phiên và sẽ tự kết nối khi mở lại."
         }
     }
 
     func resumeAfterBackground() {
         isInBackground = false
+        if let enteredBackgroundAt {
+            lastBackgroundSeconds = max(0, Int(Date().timeIntervalSince(enteredBackgroundAt)))
+            self.enteredBackgroundAt = nil
+        }
+        backgroundHolding = false
+        backgroundGraceExpired = false
         endTransferTime()
         guard ownerURL != nil, shareURL != nil else { return }
         if let expiry, Date() >= expiry {
@@ -156,9 +189,23 @@ final class BSendOnlineModel: ObservableObject {
             return
         }
         if connected, let socket {
+            // A stale URLSessionWebSocketTask can silently stop responding
+            // after iOS suspends the app. Verify with a bounded ping, then
+            // reconnect in the SAME encrypted session if necessary.
+            let checkID = UUID()
+            resumePingID = checkID
             socket.sendPing { [weak self] error in
-                guard error != nil else { return }
-                Task { @MainActor [weak self] in self?.scheduleReconnect() }
+                Task { @MainActor [weak self] in
+                    guard let self, self.resumePingID == checkID else { return }
+                    self.resumePingID = nil
+                    if error != nil { self.scheduleReconnect() }
+                }
+            }
+            Task { [weak self] in
+                try? await Task.sleep(for: .seconds(6))
+                guard let self, self.resumePingID == checkID else { return }
+                self.resumePingID = nil
+                if !self.busy { self.scheduleReconnect() }
             }
         } else {
             scheduleReconnect()
@@ -170,10 +217,11 @@ final class BSendOnlineModel: ObservableObject {
             UIApplication.shared.endBackgroundTask(backgroundTransferTask)
             backgroundTransferTask = .invalid
         }
+        backgroundHolding = false
     }
 
     private func scheduleReconnect() {
-        guard ownerURL != nil, !isInBackground else { return }
+        guard ownerURL != nil, mayReconnectInCurrentState else { return }
         reconnectTask?.cancel()
         reconnectTries += 1
         let delay = min(Double(reconnectTries) * 1.5, 8.0)
@@ -185,7 +233,7 @@ final class BSendOnlineModel: ObservableObject {
     }
 
     private func reconnectNow() {
-        guard let ownerURL, !isInBackground else { return }
+        guard let ownerURL, mayReconnectInCurrentState else { return }
         if let expiry, Date() >= expiry {
             stop(clearStatus: false)
             message = "Phiên đã hết hạn. Tạo mã mới để ghép nối."
@@ -195,7 +243,10 @@ final class BSendOnlineModel: ObservableObject {
         reconnectTask?.cancel()
         reconnectTask = nil
         reconnectTries = 0
-        endTransferTime()
+        resumePingID = nil
+        // Do not end the finite iOS background task during a reconnect.
+        // Keep the grace window available for the replacement WebSocket.
+        if !isInBackground { endTransferTime() }
         uploadTask?.cancel()
         uploadTask = nil
         receivingTask?.cancel()
@@ -245,9 +296,15 @@ final class BSendOnlineModel: ObservableObject {
 
     private func stop(clearStatus: Bool) {
         sessionMarker = UUID()
+        isInBackground = false
+        enteredBackgroundAt = nil
+        backgroundGraceExpired = false
+        backgroundHolding = false
+        resumePingID = nil
         reconnectTask?.cancel()
         reconnectTask = nil
         reconnectTries = 0
+        resumePingID = nil
         endTransferTime()
         uploadTask?.cancel()
         uploadTask = nil
@@ -295,11 +352,13 @@ final class BSendOnlineModel: ObservableObject {
                 connected = false
                 connecting = false
                 peerOnline = false
-                if !isInBackground {
-                    message = "Kết nối bị gián đoạn: \(error.localizedDescription). Đang thử nối lại..."
+                if mayReconnectInCurrentState {
+                    message = isInBackground
+                        ? "Đang khôi phục WebSocket trong thời gian nền được cấp..."
+                        : "Kết nối bị gián đoạn: \(error.localizedDescription). Đang thử nối lại..."
                     scheduleReconnect()
                 } else {
-                    message = "Kết nối bị tạm ngưng khi iPhone vào nền. Mở lại app để tự nối."
+                    message = "iOS đã tạm ngưng kết nối. Mở lại B Send để nối tự động."
                 }
                 return
             }
@@ -612,7 +671,7 @@ final class BSendOnlineModel: ObservableObject {
             if marker == self.sessionMarker {
                 self.busy = false
                 self.uploadTask = nil
-                self.endTransferTime()
+                if !self.isInBackground { self.endTransferTime() }
             }
         }
     }
