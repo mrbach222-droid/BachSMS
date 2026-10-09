@@ -298,9 +298,7 @@ struct SendV2Home: View {
                     LazyVStack(spacing: 7) {
                         ForEach(store.outgoing) { file in
                             HStack(spacing: 10) {
-                                Image(systemName: icon(for: file.url))
-                                    .foregroundStyle(SendStyle.accent)
-                                    .frame(width: 25)
+                                SendFileThumbnail(url: file.url, width: 46, height: 51)
                                 VStack(alignment: .leading, spacing: 4) {
                                     Text(file.name).font(.system(size: 11, weight: .medium))
                                         .lineLimit(1).truncationMode(.middle)
@@ -397,11 +395,7 @@ struct SendV2Home: View {
                     LazyVStack(spacing: 8) {
                         ForEach(store.outgoing) { file in
                             HStack(spacing: 11) {
-                                Image(systemName: icon(for: file.url))
-                                    .font(.system(size: 20))
-                                    .foregroundStyle(SendStyle.accent)
-                                    .frame(width: 38, height: 42)
-                                    .background(SendStyle.accent.opacity(0.1), in: RoundedRectangle(cornerRadius: 9))
+                                SendFileThumbnail(url: file.url, width: 47, height: 52)
                                 VStack(alignment: .leading, spacing: 4) {
                                     Text(file.name).font(.system(size: 12, weight: .medium))
                                         .lineLimit(1).truncationMode(.middle)
@@ -609,9 +603,7 @@ struct SendV2Home: View {
                 LazyVStack(spacing: 8) {
                     ForEach(store.incoming) { file in
                         HStack(spacing: 11) {
-                            Image(systemName: icon(for: file.url))
-                                .font(.system(size: 20)).foregroundStyle(SendStyle.accent)
-                                .frame(width: 34)
+                            SendFileThumbnail(url: file.url, width: 44, height: 48)
                             VStack(alignment: .leading, spacing: 4) {
                                 Text(file.name).font(.system(size: 12, weight: .medium))
                                     .lineLimit(1).truncationMode(.middle)
