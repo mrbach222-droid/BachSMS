@@ -7,6 +7,8 @@ struct BSendOnlineSession: Decodable {
     let expiresAt: Int64
     let ownerWebSocketURL: String
     let guestURL: String
+    let code: String
+    let shortURL: String
 }
 
 @MainActor
@@ -15,6 +17,11 @@ final class BSendOnlineModel: ObservableObject {
     static let relay = "https://bachsend-relay.mrbach222.workers.dev"
 
     @Published private(set) var shareURL: String?
+    @Published private(set) var shortCode: String?
+    @Published private(set) var shortURL: String?
+    @Published private(set) var pendingVerification = false
+    @Published private(set) var pairingApproved = false
+    @Published private(set) var verificationCode: String?
     @Published private(set) var connected = false
     @Published private(set) var peerOnline = false
     @Published private(set) var connecting = false
@@ -31,6 +38,7 @@ final class BSendOnlineModel: ObservableObject {
     private var pingTask: Task<Void, Never>?
     private var sessionMarker = UUID()
     private var sharedKey: SymmetricKey?
+    private var roomID = ""
     private var incomingFile: FileHandle?
     private var incomingTemporary: URL?
     private var incomingID: String?
@@ -42,8 +50,8 @@ final class BSendOnlineModel: ObservableObject {
     var didReceive: (() -> Void)?
 
     var isActive: Bool { connected || connecting }
-    var maySend: Bool { connected && peerOnline && !busy }
-    var canClose: Bool { connected || connecting || shareURL != nil }
+    var maySend: Bool { connected && peerOnline && pairingApproved && !busy }
+    var canClose: Bool { connected || connecting || shortCode != nil }
 
     func start() {
         guard !isActive else { return }
@@ -83,6 +91,12 @@ final class BSendOnlineModel: ObservableObject {
                 let hex = rawKey.map { String(format: "%02x", $0) }.joined()
                 self.sharedKey = key
                 self.shareURL = session.guestURL + "." + hex
+                self.shortCode = session.code
+                self.shortURL = session.shortURL
+                self.roomID = session.room
+                self.pairingApproved = false
+                self.pendingVerification = false
+                self.verificationCode = nil
                 self.expiry = Date(timeIntervalSince1970: TimeInterval(session.expiresAt) / 1000)
                 self.ownerURL = owner
                 self.connectSocket(owner, marker: marker)
@@ -110,6 +124,10 @@ final class BSendOnlineModel: ObservableObject {
         socket?.cancel(with: .normalClosure, reason: nil)
         socket = nil
         cleanupIncoming()
+        pairingApproved = false
+        pendingVerification = false
+        verificationCode = nil
+        sharedKey = nil
         connecting = false
         connected = false
         peerOnline = false
@@ -165,6 +183,12 @@ final class BSendOnlineModel: ObservableObject {
         ownerURL = nil
         cleanupIncoming()
         sharedKey = nil
+        roomID = ""
+        shortCode = nil
+        shortURL = nil
+        pairingApproved = false
+        pendingVerification = false
+        verificationCode = nil
         shareURL = nil
         expiry = nil
         connecting = false
@@ -209,7 +233,44 @@ final class BSendOnlineModel: ObservableObject {
             message = "Đã kết nối máy chủ. Mở link trên Chrome/Edge của PC."
         case "peer":
             peerOnline = json["online"] as? Bool ?? false
-            message = peerOnline ? "PC đã ghép nối. Sẵn sàng truyền file mã hóa." : "Đang đợi PC mở link để ghép nối."
+            if !peerOnline {
+                pairingApproved = false
+                pendingVerification = false
+                verificationCode = nil
+                sharedKey = nil
+            }
+            message = peerOnline ? "PC đã vào phòng. Đang xác thực mã bảo mật..." : "Đang đợi PC nhập mã ghép nối."
+        case "key-offer":
+            guard let encoded = json["pub"] as? String,
+                  let data = Data(base64Encoded: encoded),
+                  data.count == 65 else { return }
+            let remote = try P256.KeyAgreement.PublicKey(x963Representation: data)
+            let privateKey = P256.KeyAgreement.PrivateKey()
+            let shared = try privateKey.sharedSecretFromKeyAgreement(with: remote)
+            let info = Data(("B Send v0.5:" + roomID).utf8)
+            let derived = shared.hkdfDerivedSymmetricKey(using: SHA256.self,
+                                                          salt: Data(),
+                                                          sharedInfo: info,
+                                                          outputByteCount: 32)
+            sharedKey = derived
+            pairingApproved = false
+            pendingVerification = true
+            let bytes = derived.withUnsafeBytes { Data($0) }
+            let checksum = SHA256.hash(data: bytes + Data("BSEND VERIFY".utf8))
+            let digits = checksum.withUnsafeBytes { buffer -> Int in
+                let b = buffer.bindMemory(to: UInt8.self)
+                return ((Int(b[0]) << 16) | (Int(b[1]) << 8) | Int(b[2])) % 1000000
+            }
+            verificationCode = String(format: "%06d", digits)
+            guard let socket else { return }
+            let answer = [
+                "type": "key-answer",
+                "pub": privateKey.publicKey.x963Representation.base64EncodedString()
+            ]
+            let answerData = try JSONSerialization.data(withJSONObject: answer)
+            guard let text = String(data: answerData, encoding: .utf8) else { return }
+            try await socket.send(.string(text))
+            message = "So sánh mã 6 số hiển thị trên iPhone và PC rồi xác nhận."
         case "enc":
             guard let encoded = json["blob"] as? String,
                   let sealed = Data(base64Encoded: encoded),
@@ -304,6 +365,26 @@ final class BSendOnlineModel: ObservableObject {
         try writer.write(contentsOf: plain)
         incomingReceived += Int64(plain.count)
         progress = incomingExpected == 0 ? 1 : Double(incomingReceived) / Double(incomingExpected)
+    }
+
+    func approvePairing() {
+        guard pendingVerification, sharedKey != nil else { return }
+        Task {
+            do {
+                try await sendControl(["type": "pair-approved"])
+                pairingApproved = true
+                pendingVerification = false
+                verificationCode = nil
+                message = "Đã xác minh mã giống nhau. Có thể truyền file Online."
+            } catch {
+                message = "Lỗi xác nhận ghép nối: \(error.localizedDescription)"
+            }
+        }
+    }
+
+    func rejectPairing() {
+        stop(clearStatus: false)
+        message = "Đã từ chối ghép nối. Tạo link mới để thử lại."
     }
 
     func send(files: [SharedTransferFile]) {
