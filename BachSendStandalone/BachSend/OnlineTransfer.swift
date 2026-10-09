@@ -31,6 +31,11 @@ final class BSendOnlineModel: ObservableObject {
     @Published private(set) var busy = false
     @Published private(set) var progress: Double = 0
     @Published private(set) var progressTitle: String = ""
+    @Published var turboMode = "Tự động"
+    @Published private(set) var uploadMBps: Double = 0
+    @Published private(set) var remainingSeconds: Double = 0
+    @Published private(set) var sentBytes: Int64 = 0
+    @Published private(set) var totalBytes: Int64 = 0
     @Published var message = "Nhấn Tạo link Online để ghép nối PC ở mạng khác."
     @Published private(set) var expiry: Date?
 
@@ -55,6 +60,9 @@ final class BSendOnlineModel: ObservableObject {
     private var awaitingReceipt: String?
     private var acknowledgedReceipt: String?
     var didReceive: (() -> Void)?
+    // Only after the PC confirms the full file: caller removes its B Send
+    // staging copy (never the user's original in Photos/Files).
+    var didUpload: ((UUID) -> Void)?
 
     var isActive: Bool { connected || connecting }
     var maySend: Bool { connected && peerOnline && pairingApproved && !busy }
@@ -203,6 +211,10 @@ final class BSendOnlineModel: ObservableObject {
         peerOnline = false
         progress = 0
         progressTitle = ""
+        uploadMBps = 0
+        remainingSeconds = 0
+        sentBytes = 0
+        totalBytes = 0
         awaitingReceipt = nil
         acknowledgedReceipt = nil
         // sharedKey and pairingApproved are intentionally retained.
@@ -500,6 +512,14 @@ final class BSendOnlineModel: ObservableObject {
                     let id = UUID().uuidString.lowercased()
                     self.progressTitle = "iPhone → PC: " + file.name
                     self.progress = 0
+                    self.uploadMBps = 0
+                    self.remainingSeconds = 0
+                    self.sentBytes = 0
+                    self.totalBytes = file.size
+                    let uploadStart = Date()
+                    var lastStatsUpdate = Date.distantPast
+                    var targetWindow = self.turboMode == "Turbo" ? 96 :
+                        (self.turboMode == "Ổn định" ? 16 : 32)
                     self.awaitingReceipt = id
                     self.acknowledgedReceipt = nil
                     self.pendingProgressId = id
@@ -530,8 +550,18 @@ final class BSendOnlineModel: ObservableObject {
                         sent += Int64(chunk.count)
                         chunksSent += 1
                         self.progress = file.size == 0 ? 1 : Double(sent) / Double(file.size)
-                        // Keep in-flight data bounded to ~768 KiB, even for multi-GB files.
-                        if chunksSent % Self.progressWindow == 0 {
+                        if Date().timeIntervalSince(lastStatsUpdate) > 0.25 || sent == file.size {
+                            let elapsed = max(0.01, Date().timeIntervalSince(uploadStart))
+                            self.sentBytes = sent
+                            self.uploadMBps = Double(sent) / elapsed / 1_048_576
+                            self.remainingSeconds = self.uploadMBps > 0 ?
+                                Double(max(0, file.size - sent)) / (self.uploadMBps * 1_048_576) : 0
+                            lastStatsUpdate = Date()
+                        }
+                        // 16..128 encrypted frames are in flight, with adaptive
+                        // ACK-controlled pacing. Each receiver ACKs every 16 frames.
+                        if chunksSent % targetWindow == 0 {
+                            let roundTripStart = Date()
                             var attempts = 0
                             while self.progressAcknowledged < sent {
                                 try Task.checkCancellation()
@@ -545,6 +575,11 @@ final class BSendOnlineModel: ObservableObject {
                                 if attempts > 900 { throw NSError(domain: "BSend", code: 13, userInfo: [
                                     NSLocalizedDescriptionKey: "PC không xác nhận tiến độ trong 90 giây."
                                 ]) }
+                            }
+                            if self.turboMode == "Tự động" {
+                                let ackSeconds = Date().timeIntervalSince(roundTripStart)
+                                if ackSeconds < 0.6 { targetWindow = min(128, targetWindow * 2) }
+                                else if ackSeconds > 2.5 { targetWindow = max(16, targetWindow / 2) }
                             }
                         }
                         await Task.yield()
@@ -562,7 +597,9 @@ final class BSendOnlineModel: ObservableObject {
                             NSLocalizedDescriptionKey: "PC chưa xác nhận nhận đủ file trong 120 giây."
                         ])
                     }
-                    self.message = "PC đã nhận file \(file.name)."
+                    self.message = "PC đã nhận file \(file.name). Đã xóa bản sao gửi tạm khỏi B Send."
+                    try? handle.close()
+                    self.didUpload?(file.id)
                     self.awaitingReceipt = nil
                     self.pendingProgressId = nil
                 }
