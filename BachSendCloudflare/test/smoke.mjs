@@ -8,7 +8,7 @@ assert(page.includes('const roomFromPage="a'.slice(0,24)), "Room marker should b
 assert(!page.includes("ROOM_PLACEHOLDER"), "No raw room placeholder");
 assert(home.includes("Mã ghép nối"), "Quick Connect homepage missing");
 assert(page.includes("Nhận từ iPhone") && page.includes("Gửi từ PC"),"Two-way file UI missing");
-assert(page.includes("chưa kiểm toán bảo mật"), "Unverified security warning missing");
+assert(page.includes("chưa được kiểm toán bảo mật"), "Unverified security warning missing");
 assert(page.includes("AES-256-GCM"), "AES-GCM UI missing");
 assert(page.includes("crypto.subtle.encrypt"), "Browser encryption missing");
 assert(page.includes("crypto.subtle.decrypt"), "Browser decryption missing");
