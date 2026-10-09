@@ -269,5 +269,5 @@ private extension View {
     }
 }
 @main struct BachFindApp: App {
-    var body:some Scene {WindowGroup{FindHome()}}
+    var body:some Scene {WindowGroup{FindV2Home()}}
 }
