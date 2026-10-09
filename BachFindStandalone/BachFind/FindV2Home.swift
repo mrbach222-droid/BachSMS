@@ -97,6 +97,21 @@ struct FindV2Home: View {
         }
         .preferredColorScheme(.dark)
         .tint(FindStyle.cyan)
+         .task {
+            store.refreshPermission()
+            if store.permission == .notDetermined {
+                await store.askAndScan()
+            } else if store.allowed && store.items.isEmpty {
+                store.scan()
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in
+            let previousPermission = store.permission
+            store.refreshPermission()
+            if store.allowed && previousPermission != store.permission && !store.scanning {
+                store.scan()
+            }
+        }
         .sheet(item: $selected) { FindPhotoDetail(photo: $0) }
         .confirmationDialog("Xóa toàn bộ chỉ mục OCR?", isPresented: $clearDialog) {
             Button("Xóa chỉ mục", role: .destructive) { store.clear() }
@@ -151,7 +166,7 @@ struct FindV2Home: View {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Mọi nội dung, một lần tìm.")
                             .font(.system(size: 20, weight: .bold, design: .rounded))
-                        Text("Chữ · Số tiền · Mã hợp đồng · Biển số")
+                        Text("Tìm đúng chữ hoặc con số có trong ảnh")
                             .font(.system(size: 11)).foregroundStyle(FindStyle.muted)
                     }
                     Spacer(minLength: 1)
@@ -234,18 +249,33 @@ struct FindV2Home: View {
                 Spacer(minLength: 0)
                 if store.scanning { Text("\(Int(store.progress * 100))%").font(.system(size: 11)).foregroundStyle(FindStyle.cyan) }
             }
-            Text(store.scanning ? "Bạn có thể tạm dừng và tiếp tục." : store.status)
+            Text(store.scanning
+                 ? "Đã kiểm tra \(store.scanned)/\(store.total) ảnh · Có chữ: \(store.items.count)"
+                 : store.status)
                 .font(.system(size: 10)).foregroundStyle(FindStyle.muted)
-                .lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
+                .lineLimit(4)
             if store.scanning {
                 ProgressView(value: store.progress).tint(FindStyle.cyan)
             }
             Button {
-                if !store.allowed { Task { await store.askAndScan() } }
-                else if store.scanning { store.cancel() }
-                else { store.scan() }
+                if !store.allowed {
+                    if store.permission == .denied || store.permission == .restricted {
+                        if let url = URL(string: UIApplication.openSettingsURLString) {
+                            UIApplication.shared.open(url)
+                        }
+                    } else {
+                        Task { await store.askAndScan() }
+                    }
+                } else if store.scanning {
+                    store.cancel()
+                } else {
+                    store.scan()
+                }
             } label: {
-                Label(!store.allowed ? "Cấp quyền ảnh" : store.scanning ? "Tạm dừng" : "Quét ảnh mới",
+                Label(!store.allowed
+                      ? (store.permission == .denied || store.permission == .restricted ? "Mở Cài đặt để cấp quyền" : "Cấp quyền ảnh")
+                      : (store.scanning ? "Tạm dừng" : "Quét ảnh mới"),
                       systemImage: store.scanning ? "pause.fill" : "viewfinder")
                     .font(.system(size: 12, weight: .semibold))
                     .frame(maxWidth: .infinity).frame(height: 35)
