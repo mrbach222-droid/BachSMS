@@ -46,18 +46,24 @@ export class QuickCodes extends DurableObject {
     }
     if(url.pathname==="/register-device" && req.method==="POST"){
       const data=await req.json();
-      const {deviceId,deviceSecret,room,guestToken,expiresAt}=data;
+      const {deviceId,deviceOwnerSecret,deviceLinkSecret,room,guestToken,expiresAt}=data;
       const name=String(data.deviceName||"iPhone").trim().slice(0,48).replace(/[\x00-\x1f\x7f]/g,"");
-      if(!ROOM_PATTERN.test(deviceId)||!TOKEN_PATTERN.test(deviceSecret)||
+      if(!ROOM_PATTERN.test(deviceId)||!TOKEN_PATTERN.test(deviceOwnerSecret)||
+         !TOKEN_PATTERN.test(deviceLinkSecret)||
          !ROOM_PATTERN.test(room)||!TOKEN_PATTERN.test(guestToken)||
          !Number.isFinite(expiresAt)||expiresAt<=Date.now()||expiresAt>Date.now()+TTL+60000)
         return result({error:"bad_device_data"},400);
       const identityKey="identity:"+deviceId;
-      const suppliedHash=await hashed(deviceSecret);
+      const suppliedHash=await hashed(deviceOwnerSecret);
       const registered=await this.ctx.storage.get(identityKey);
       if(registered&&registered!==suppliedHash)
         return result({error:"device_identity_conflict"},403);
+      const linkHash=await hashed(deviceLinkSecret);
+      const savedLinkHash=await this.ctx.storage.get("link:"+deviceId);
+      if(savedLinkHash&&savedLinkHash!==linkHash)
+        return result({error:"device_link_conflict"},403);
       if(!registered)await this.ctx.storage.put(identityKey,suppliedHash);
+      if(!savedLinkHash)await this.ctx.storage.put("link:"+deviceId,linkHash);
       await this.ctx.storage.put("device:"+deviceId,{room,guestToken,expiresAt,name});
       return result({ok:true});
     }
@@ -70,8 +76,8 @@ export class QuickCodes extends DurableObject {
       let body;try{body=await req.json()}catch{return result({error:"bad_json"},400)}
       if(!ROOM_PATTERN.test(body?.deviceId||"")||!TOKEN_PATTERN.test(body?.deviceSecret||""))
         return result({error:"invalid_device_link"},400);
-      const identity=await this.ctx.storage.get("identity:"+body.deviceId);
-      if(!identity||identity!==await hashed(body.deviceSecret))
+      const linkHash=await this.ctx.storage.get("link:"+body.deviceId);
+      if(!linkHash||linkHash!==await hashed(body.deviceSecret))
         return result({error:"invalid_device_link"},403);
       const entry=await this.ctx.storage.get("device:"+body.deviceId);
       if(!entry||entry.expiresAt<=Date.now())return result({error:"device_offline"},404);
@@ -250,11 +256,12 @@ export default {
         if(attempt.ok){code=candidate;break;}
       }
       if(!code)return result({error:"quick_code_capacity"},503);
-      if(requestBody.deviceId||requestBody.deviceSecret){
+      if(requestBody.deviceId||requestBody.deviceOwnerSecret||requestBody.deviceLinkSecret){
         const registered=await dir.fetch(new Request("https://directory.internal/register-device",{
           method:"POST",headers:{"content-type":"application/json"},
           body:JSON.stringify({deviceId:requestBody.deviceId,
-              deviceSecret:requestBody.deviceSecret,
+              deviceOwnerSecret:requestBody.deviceOwnerSecret,
+              deviceLinkSecret:requestBody.deviceLinkSecret,
               deviceName:requestBody.deviceName,
               room,guestToken,expiresAt:data.expiresAt})
         }));
