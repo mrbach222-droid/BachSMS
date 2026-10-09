@@ -1,0 +1,37 @@
+name: Validate B Send v0.6.4 Smart Resume SHA-256
+on:
+  push:
+    branches: [bachsend-v064-smart-resume-sha256]
+    paths:
+      - 'BachSendCloudflare/**'
+      - '.github/workflows/test-bachsend-v064.yml'
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: BachSendCloudflare
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install Worker build tool
+        run: npm install --no-audit --no-fund
+      - name: Static smoke and browser script syntax checks
+        run: npm test
+      - name: Validate Cloudflare Worker bundle
+        run: npx wrangler deploy --dry-run --outdir ./dist
+      - name: Two private iPhones, parallel encrypted room routing
+        run: |
+          set -eu
+          npx wrangler dev --local --ip 127.0.0.1 --port 8787 > /tmp/bsend-worker-v060.log 2>&1 &
+          PID=$!
+          trap 'kill $PID 2>/dev/null || true' EXIT
+          for i in $(seq 1 45); do
+            if curl -fsS http://127.0.0.1:8787/api/health >/dev/null; then break; fi
+            sleep 2
+          done
+          node test/multi-device-v060.mjs || { cat /tmp/bsend-worker-v060.log; exit 1; }
