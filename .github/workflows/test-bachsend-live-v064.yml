@@ -1,0 +1,47 @@
+name: Live B Send v0.6.4 Smart Resume SHA-256
+on:
+  push:
+    branches: [bachsend-v064-smart-resume-sha256]
+    paths:
+      - '.github/workflows/test-bachsend-live-v064.yml'
+  workflow_dispatch:
+jobs:
+  live:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Wait for production v0.6.4 Smart Resume web deployment
+        run: |
+          node --input-type=module <<'NODE'
+          const url="https://bachsend-relay.mrbach222.workers.dev/";
+          let ready=false;
+          for(let i=0;i<70;i++){
+            try{
+              const response=await fetch(url,{cache:"no-store",headers:{"Cache-Control":"no-cache"}});
+              const page=await response.text();
+              if(response.ok && page.includes("B Send v0.6.4 Smart Resume") &&
+                 page.includes("class BSendSHA256") &&
+                 page.includes('type:"file-ready"') &&
+                 page.includes("sha256File(file)") &&
+                 page.includes('reason:"sha256-mismatch"')){
+                 console.log("PASS production v0.6.4 Web SHA-256 and Smart Resume ready");
+                 ready=true;break;
+              }
+              console.log("Waiting for Cloudflare v0.6.4...");
+            }catch(e){console.log(e.message)}
+            await new Promise(r=>setTimeout(r,4000));
+          }
+          if(!ready)process.exit(1);
+          NODE
+      - name: Verify two concurrently isolated iPhones on production relay
+        env:
+          BSEND_BASE: https://bachsend-relay.mrbach222.workers.dev
+        run: node BachSendCloudflare/test/multi-device-v060.mjs
+      - name: Encrypted 8MiB resume and SHA-256 confirmation on production Cloudflare
+        env:
+          BSEND_BASE: https://bachsend-relay.mrbach222.workers.dev
+        run: node BachSendCloudflare/test/smart-resume-v064.mjs
