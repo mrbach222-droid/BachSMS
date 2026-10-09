@@ -1,0 +1,29 @@
+name: Check Live B Send v0.5.1 Browser Resume
+on:
+  push:
+    branches: [bachsend-quick-v05]
+    paths:
+      - '.github/workflows/check-bachsend-live-resume.yml'
+  workflow_dispatch:
+jobs:
+  live:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Verify deployed PC page and relay
+        run: |
+          node <<'NODE'
+          const base = 'https://bachsend-relay.mrbach222.workers.dev';
+          const health = await fetch(base+'/api/health');
+          const json = await health.json();
+          if (!health.ok || json.status !== 'ready') throw Error('Worker health failed');
+          const pageRes = await fetch(base+'/', {cache:'no-store'});
+          const page = await pageRes.text();
+          if (!pageRes.ok || !page.includes('resume-probe') || !page.includes('Đang khôi phục'))
+            throw Error('Updated browser auto-resume is not deployed yet');
+          if (!page.includes('BÁCH APP') || !page.includes('QUICK CONNECT'))
+            throw Error('Quick Connect UI missing');
+          console.log('PASS Cloudflare v0.5.1 desktop auto-resume delivered over HTTPS');
+          NODE
