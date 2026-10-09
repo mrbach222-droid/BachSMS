@@ -169,7 +169,7 @@ export default {
         headers: { "content-type": "text/html;charset=utf-8", "cache-control": "no-store",
           "referrer-policy": "no-referrer", "x-content-type-options": "nosniff",
           "content-security-policy": "default-src 'none';frame-ancestors 'none';base-uri 'none';" +
-            "script-src 'unsafe-inline';style-src 'unsafe-inline';connect-src 'self' wss:;img-src 'self' data:",
+            "script-src 'unsafe-inline';style-src 'unsafe-inline';connect-src 'self' wss:;img-src 'self' data: blob:;media-src blob:",
         }
       });
     if (url.pathname === "/api/health" && request.method === "GET")
@@ -217,7 +217,7 @@ export default {
         headers:{"content-type":"text/html;charset=utf-8","cache-control":"no-store",
           "referrer-policy":"no-referrer","x-content-type-options":"nosniff",
           "content-security-policy":"default-src 'none';frame-ancestors 'none';base-uri 'none';" +
-            "script-src 'unsafe-inline';style-src 'unsafe-inline';connect-src 'self' wss:;img-src 'self' data:"}
+            "script-src 'unsafe-inline';style-src 'unsafe-inline';connect-src 'self' wss:;img-src 'self' data: blob:;media-src blob:"}
       });
     }
     const page = url.pathname.match(/^\/s\/([a-f0-9]{32})$/);
@@ -228,7 +228,7 @@ export default {
           "cache-control": "no-store", "x-content-type-options": "nosniff",
           "referrer-policy": "no-referrer",
           "content-security-policy": "default-src 'none';base-uri 'none';frame-ancestors 'none';" +
-            "script-src 'unsafe-inline';style-src 'unsafe-inline';connect-src 'self' wss:;img-src 'self' data:",
+            "script-src 'unsafe-inline';style-src 'unsafe-inline';connect-src 'self' wss:;img-src 'self' data: blob:;media-src blob:",
         },
       });
     }
