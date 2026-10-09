@@ -1,0 +1,19 @@
+name: Live B Send v0.5.5 Turbo Privacy Relay
+on:
+  push:
+    branches: [bachsend-v055-turbo-cleanup]
+    paths:
+      - 'BachSendCloudflare/test/live-turbo-v055.mjs'
+      - '.github/workflows/test-bachsend-turbo-live-v055.yml'
+  workflow_dispatch:
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Check live production v0.5.5 and encrypted >50MiB relay
+        run: node BachSendCloudflare/test/live-turbo-v055.mjs
