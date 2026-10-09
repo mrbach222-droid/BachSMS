@@ -208,6 +208,10 @@ struct SendV2Home: View {
                             .font(.system(size: 19, weight: .bold, design: .rounded))
                         Text("PC dùng LAN, iPhone dùng Wi-Fi riêng vẫn kết nối.")
                             .font(.system(size: 11)).foregroundStyle(SendStyle.secondary)
+                        Label("Smart Resume · SHA-256 xác minh file",
+                              systemImage: "checkmark.shield.fill")
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundStyle(.green)
                     }
                     Spacer(minLength: 0)
                     Image(systemName: "globe.asia.australia.fill")
@@ -871,7 +875,7 @@ struct SendV2Home: View {
                             .contentShape(RoundedRectangle(cornerRadius: 11))
                     }.buttonStyle(.plain)
                 }.sendGlass()
-                Text("B Send · v0.6.2 Personal Quick Connect · Bách App")
+                Text("B Send · v0.6.4 Smart Resume & SHA-256 · Bách App")
                     .font(.system(size: 10)).foregroundStyle(SendStyle.secondary.opacity(0.75))
             }.padding(.horizontal, 19).padding(.top, 10)
         }
