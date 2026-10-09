@@ -110,11 +110,77 @@ final class BSendOnlineModel: ObservableObject {
 
     func stop() { stop(clearStatus: true) }
 
-    // Keep the pairing URL and key while iOS switches apps. A dormant iOS app
-    // cannot reliably keep a live socket; reconnect when it becomes foreground.
+    // iOS may suspend a normal WebSocket in the background. Do not deliberately
+    // close a healthy socket when Home is pressed. Preserve E2E pairing keys.
+    // A finite background task is used only for transfers that are in progress.
+    private var isInBackground = false
+    private var backgroundTransferTask: UIBackgroundTaskIdentifier = .invalid
+    private var reconnectTask: Task<Void, Never>?
+    private var reconnectTries = 0
+
     func pauseForBackground() {
+        isInBackground = true
+        if busy && backgroundTransferTask == .invalid {
+            backgroundTransferTask = UIApplication.shared.beginBackgroundTask(
+                withName: "B Send - Finishing transfer") { [weak self] in
+                Task { @MainActor [weak self] in self?.endTransferTime() }
+            }
+        }
+        if isActive {
+            message = "Phiên ghép nối vẫn được giữ. iOS có thể tạm ngưng đường truyền khi về màn hình chính."
+        }
+    }
+
+    func resumeAfterBackground() {
+        isInBackground = false
+        endTransferTime()
         guard ownerURL != nil, shareURL != nil else { return }
+        if let expiry, Date() >= expiry {
+            stop(clearStatus: false)
+            message = "Phiên đã hết hạn. Hãy tạo mã mới."
+            return
+        }
+        if connected, let socket {
+            socket.sendPing { [weak self] error in
+                guard error != nil else { return }
+                Task { @MainActor [weak self] in self?.scheduleReconnect() }
+            }
+        } else {
+            scheduleReconnect()
+        }
+    }
+
+    private func endTransferTime() {
+        if backgroundTransferTask != .invalid {
+            UIApplication.shared.endBackgroundTask(backgroundTransferTask)
+            backgroundTransferTask = .invalid
+        }
+    }
+
+    private func scheduleReconnect() {
+        guard ownerURL != nil, !isInBackground else { return }
+        reconnectTask?.cancel()
+        reconnectTries += 1
+        let delay = min(Double(reconnectTries) * 1.5, 8.0)
+        reconnectTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(delay))
+            guard let self, !Task.isCancelled else { return }
+            self.reconnectNow()
+        }
+    }
+
+    private func reconnectNow() {
+        guard let ownerURL, !isInBackground else { return }
+        if let expiry, Date() >= expiry {
+            stop(clearStatus: false)
+            message = "Phiên đã hết hạn. Tạo mã mới để ghép nối."
+            return
+        }
         sessionMarker = UUID()
+        reconnectTask?.cancel()
+        reconnectTask = nil
+        reconnectTries = 0
+        endTransferTime()
         uploadTask?.cancel()
         uploadTask = nil
         receivingTask?.cancel()
@@ -124,30 +190,16 @@ final class BSendOnlineModel: ObservableObject {
         socket?.cancel(with: .normalClosure, reason: nil)
         socket = nil
         cleanupIncoming()
-        pairingApproved = false
-        pendingVerification = false
-        verificationCode = nil
-        sharedKey = nil
-        connecting = false
+        busy = false
+        connecting = true
         connected = false
         peerOnline = false
-        busy = false
         progress = 0
         progressTitle = ""
         awaitingReceipt = nil
         acknowledgedReceipt = nil
-        message = "Đã tạm dừng trong nền. Quay lại B Send để kết nối tiếp."
-    }
-
-    func resumeAfterBackground() {
-        guard let ownerURL, shareURL != nil, !connected, !connecting else { return }
-        if let expiry, Date() >= expiry {
-            stop(clearStatus: false)
-            message = "Link Online đã hết hạn. Tạo phiên mới."
-            return
-        }
-        connecting = true
-        message = "Đang kết nối lại phiên Online..."
+        // sharedKey and pairingApproved are intentionally retained.
+        message = "Đang nối lại phiên, không cần nhập lại mã ghép nối..."
         connectSocket(ownerURL, marker: sessionMarker)
     }
 
@@ -156,22 +208,28 @@ final class BSendOnlineModel: ObservableObject {
         let ws = URLSession.shared.webSocketTask(with: owner)
         socket = ws
         ws.resume()
-        message = "Đang kết nối WebSocket bảo mật..."
         receivingTask = Task { [weak self] in
             await self?.listen(marker: marker)
         }
         pingTask = Task { [weak self] in
             guard let self else { return }
             while !Task.isCancelled && marker == self.sessionMarker {
-                try? await Task.sleep(for: .seconds(22))
+                try? await Task.sleep(for: .seconds(18))
                 guard !Task.isCancelled, marker == self.sessionMarker else { break }
-                ws.sendPing { _ in }
+                ws.sendPing { [weak self] error in
+                    guard error != nil else { return }
+                    Task { @MainActor [weak self] in self?.scheduleReconnect() }
+                }
             }
         }
     }
 
     private func stop(clearStatus: Bool) {
         sessionMarker = UUID()
+        reconnectTask?.cancel()
+        reconnectTask = nil
+        reconnectTries = 0
+        endTransferTime()
         uploadTask?.cancel()
         uploadTask = nil
         receivingTask?.cancel()
@@ -215,8 +273,15 @@ final class BSendOnlineModel: ObservableObject {
                 }
             } catch {
                 guard marker == sessionMarker else { return }
-                stop(clearStatus: false)
-                message = "Kết nối Online đã ngắt: \(error.localizedDescription). Tạo link mới để kết nối lại."
+                connected = false
+                connecting = false
+                peerOnline = false
+                if !isInBackground {
+                    message = "Kết nối bị gián đoạn: \(error.localizedDescription). Đang thử nối lại..."
+                    scheduleReconnect()
+                } else {
+                    message = "Kết nối bị tạm ngưng khi iPhone vào nền. Mở lại app để tự nối."
+                }
                 return
             }
         }
@@ -228,18 +293,24 @@ final class BSendOnlineModel: ObservableObject {
               let type = json["type"] as? String else { return }
         switch type {
         case "ready":
+            reconnectTask?.cancel()
+            reconnectTask = nil
+            reconnectTries = 0
             connecting = false
             connected = true
             message = "Đã kết nối máy chủ. Mở link trên Chrome/Edge của PC."
         case "peer":
             peerOnline = json["online"] as? Bool ?? false
             if !peerOnline {
-                pairingApproved = false
+                // Keep the authenticated key for the SAME browser reconnecting.
                 pendingVerification = false
                 verificationCode = nil
-                sharedKey = nil
+                message = "PC tạm mất kết nối, đang chờ PC quay lại."
+            } else if pairingApproved && sharedKey != nil {
+                message = "PC đã quay lại. Đang khôi phục phiên đã xác minh..."
+            } else {
+                message = "PC đã vào phòng. Đang xác thực mã bảo mật..."
             }
-            message = peerOnline ? "PC đã vào phòng. Đang xác thực mã bảo mật..." : "Đang đợi PC nhập mã ghép nối."
         case "key-offer":
             guard let encoded = json["pub"] as? String,
                   let data = Data(base64Encoded: encoded),
@@ -284,6 +355,12 @@ final class BSendOnlineModel: ObservableObject {
 
     private func handleControl(_ type: String, _ json: [String: Any]) async throws {
         switch type {
+        case "resume-probe":
+            guard pairingApproved, sharedKey != nil,
+                  let check = json["nonce"] as? String,
+                  check.count >= 12, check.count <= 80 else { return }
+            try await sendControl(["type": "resume-ack", "nonce": check])
+            message = "Đã khôi phục phiên ghép nối an toàn với PC."
         case "file-start":
             guard incomingFile == nil,
                   let id = json["id"] as? String,
@@ -455,6 +532,7 @@ final class BSendOnlineModel: ObservableObject {
             if marker == self.sessionMarker {
                 self.busy = false
                 self.uploadTask = nil
+                self.endTransferTime()
             }
         }
     }
