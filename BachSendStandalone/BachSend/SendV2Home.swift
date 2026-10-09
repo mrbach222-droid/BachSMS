@@ -39,6 +39,7 @@ struct SendV2Home: View {
     @State private var showFiles = false
     @State private var photoItems: [PhotosPickerItem] = []
     @State private var copied = false
+    @State private var showPrivateLinkQR = false
     @State private var removeAll = false
     @State private var showPurgeEverything = false
     @State private var mediaSavingURL: URL?
@@ -79,8 +80,13 @@ struct SendV2Home: View {
             store.purgeExpiredIfIdle(onlineBusy: online.busy)
             store.refresh()
         }
+        .onChange(of: selectedTab) { _, _ in showPrivateLinkQR = false }
+        .onChange(of: transferMode) { _, _ in showPrivateLinkQR = false }
         .onChange(of: scenePhase) { _, phase in
-            if phase == .background { online.pauseForBackground() }
+            if phase == .background {
+                showPrivateLinkQR = false
+                online.pauseForBackground()
+            }
             if phase == .active {
                 online.resumeAfterBackground()
                 if !online.busy { store.purgeExpiredIfIdle(); store.refresh() }
@@ -214,35 +220,55 @@ struct SendV2Home: View {
                             Label("ĐÃ MỞ CHIA SẺ ONLINE", systemImage: "checkmark.shield.fill")
                                 .font(.system(size: 11, weight: .semibold))
                                 .foregroundStyle(.green)
-                            Text("Link riêng cho iPhone này")
-                                .font(.system(size: 17, weight: .bold, design: .rounded))
+                            Label("Đang kết nối bằng phòng riêng",
+                                  systemImage: "lock.shield.fill")
+                                .font(.system(size: 15, weight: .bold, design: .rounded))
                                 .foregroundStyle(SendStyle.accent)
-                            Text("Trên PC, mở link riêng một lần để lưu thiết bị. Từ lần sau chỉ cần chọn đúng iPhone. Lần đầu kết nối vẫn cần Chấp nhận.")
+                            Text("PC đã liên kết: chỉ cần mở web và chọn tên iPhone. Nếu cần thêm PC mới, hãy mở mã QR trong thời gian ngắn.")
                                 .font(.system(size: 11))
                                 .foregroundStyle(SendStyle.secondary)
                                 .multilineTextAlignment(.center)
                                 .fixedSize(horizontal: false, vertical: true)
                             if let link = online.privateDeviceURL {
-                                SendQR(text: link)
-                                    .frame(width: 154, height: 154)
-                                    .padding(8)
-                                    .background(.white, in: RoundedRectangle(cornerRadius: 13))
                                 Button {
-                                    UIPasteboard.general.string = link
-                                    copied = true
+                                    withAnimation(.easeInOut(duration: 0.18)) {
+                                        showPrivateLinkQR.toggle()
+                                    }
+                                    copied = false
                                 } label: {
-                                    Label(copied ? "Đã sao chép link riêng" : "Sao chép link iPhone riêng",
-                                          systemImage: copied ? "checkmark" : "doc.on.doc")
-                                        .font(.system(size: 11, weight: .semibold))
-                                        .frame(maxWidth: .infinity).frame(height: 38)
+                                    Label(showPrivateLinkQR ? "Ẩn mã liên kết" : "Thêm PC mới · Hiện mã QR",
+                                          systemImage: showPrivateLinkQR ? "eye.slash.fill" : "qrcode.viewfinder")
+                                        .font(.system(size: 12, weight: .semibold))
+                                        .frame(maxWidth: .infinity).frame(height: 42)
+                                        .foregroundStyle(SendStyle.accent)
+                                        .background(SendStyle.accent.opacity(0.12),
+                                                    in: RoundedRectangle(cornerRadius: 10))
                                 }
                                 .buttonStyle(.plain)
-                                .background(SendStyle.accent.opacity(0.15), in: RoundedRectangle(cornerRadius: 10))
-                                Label("Link này là chìa khóa thiết bị. Chỉ gửi cho PC hoặc bạn bè bạn tin tưởng.",
-                                      systemImage: "lock.shield.fill")
-                                    .font(.system(size: 10))
-                                    .foregroundStyle(.orange)
-                                    .multilineTextAlignment(.center)
+                                if showPrivateLinkQR {
+                                    SendQR(text: link)
+                                        .frame(width: 154, height: 154)
+                                        .padding(8)
+                                        .background(.white, in: RoundedRectangle(cornerRadius: 13))
+                                    Button {
+                                        UIPasteboard.general.string = link
+                                        copied = true
+                                        withAnimation { showPrivateLinkQR = false }
+                                    } label: {
+                                        Label(copied ? "Đã sao chép" : "Sao chép mã liên kết ẩn",
+                                              systemImage: copied ? "checkmark" : "doc.on.doc")
+                                            .font(.system(size: 11, weight: .semibold))
+                                            .frame(maxWidth: .infinity).frame(height: 38)
+                                    }
+                                    .buttonStyle(.plain)
+                                    .background(SendStyle.accent.opacity(0.15),
+                                                in: RoundedRectangle(cornerRadius: 10))
+                                    Label("Mã QR chứa khóa ghép nối bí mật. Chỉ quét trên PC tin tưởng. Bấm Ẩn ngay sau khi dùng.",
+                                          systemImage: "exclamationmark.shield")
+                                        .font(.system(size: 10))
+                                        .foregroundStyle(.orange)
+                                        .multilineTextAlignment(.center)
+                                }
                             }
                             HStack(spacing: 8) {
                                 Text("Tên thiết bị")
@@ -830,7 +856,7 @@ struct SendV2Home: View {
                             .contentShape(RoundedRectangle(cornerRadius: 11))
                     }.buttonStyle(.plain)
                 }.sendGlass()
-                Text("B Send · v0.6.0 Private Device · Bách App")
+                Text("B Send · v0.6.1 Hidden Private Link · Bách App")
                     .font(.system(size: 10)).foregroundStyle(SendStyle.secondary.opacity(0.75))
             }.padding(.horizontal, 19).padding(.top, 10)
         }
