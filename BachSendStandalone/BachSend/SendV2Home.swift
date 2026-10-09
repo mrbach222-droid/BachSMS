@@ -317,6 +317,12 @@ struct SendV2Home: View {
                         .font(.system(size: 11))
                         .foregroundStyle(SendStyle.secondary)
                         .fixedSize(horizontal: false, vertical: true)
+                    if online.lastBackgroundSeconds > 0 {
+                        Label("Lần chuyển ứng dụng gần nhất: \(online.lastBackgroundSeconds) giây",
+                              systemImage: "clock.arrow.circlepath")
+                            .font(.system(size: 10))
+                            .foregroundStyle(SendStyle.accent)
+                    }
                     if online.busy || online.progress > 0 {
                         VStack(alignment: .leading, spacing: 5) {
                             HStack {
@@ -445,7 +451,7 @@ struct SendV2Home: View {
                     .font(.system(size: 10))
                     .foregroundStyle(.orange)
                     .fixedSize(horizontal: false, vertical: true)
-                Text("Khi iPhone vào nền, iOS có thể tạm ngưng WebSocket. B Send sẽ giữ phiên và tự kết nối lại khi mở lên. Để truyền file ổn định, hãy giữ app ở màn hình trước.")
+                Text("Quick Background: bấm Home trả lời tin nhắn, B Send sẽ cố giữ WebSocket trong thời gian iOS cấp, kể cả lúc chờ file từ PC. Thử quay lại sau 15/30/60 giây. iOS có thể ngắt sớm; không bảo đảm duy trì đủ 1 phút.")
                     .font(.system(size: 10))
                     .foregroundStyle(SendStyle.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -805,7 +811,7 @@ struct SendV2Home: View {
                             .contentShape(RoundedRectangle(cornerRadius: 11))
                     }.buttonStyle(.plain)
                 }.sendGlass()
-                Text("B Send · v0.5.5 Turbo & Privacy · Bách App")
+                Text("B Send · v0.5.6 Quick Background · Bách App")
                     .font(.system(size: 10)).foregroundStyle(SendStyle.secondary.opacity(0.75))
             }.padding(.horizontal, 19).padding(.top, 10)
         }
