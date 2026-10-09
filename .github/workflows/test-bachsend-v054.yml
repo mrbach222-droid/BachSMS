@@ -1,0 +1,25 @@
+name: Validate B Send v0.5.4 Web Large File Support
+on:
+  push:
+    branches: [bachsend-v054-large-transfer]
+    paths:
+      - 'BachSendCloudflare/**'
+      - '.github/workflows/test-bachsend-v054.yml'
+  workflow_dispatch:
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: BachSendCloudflare
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Validate web UI and windowed transfer protocol
+        run: npm test
+      - name: Validate Cloudflare durable worker (no production deployment)
+        run: |
+          npm install --no-audit --no-fund
+          npx wrangler deploy --dry-run --outdir ./dist
