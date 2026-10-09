@@ -127,7 +127,28 @@ try{
  },null,{timeout:12000});
  console.log("PASS Safari received image preview, SHA256 verified and IndexedDB durable save");
  await page.reload({waitUntil:"domcontentloaded"});
- await page.waitForFunction(()=>Array.from(document.querySelectorAll("#received .file")).some(r=>r.dataset.name==="test-photo.png"),null,{timeout:12000});
+ try{
+  await page.waitForFunction(()=>Array.from(document.querySelectorAll("#received .file")).some(r=>r.dataset.name==="test-photo.png"),null,{timeout:12000});
+ }catch(e){
+  const diagnostic=await page.evaluate(async()=>{
+   const dom={url:location.pathname,ready:document.readyState,
+     state:document.getElementById("state")?.textContent,
+     received:document.getElementById("received")?.innerHTML?.slice(0,400),
+     notice:document.getElementById("notice")?.textContent};
+   dom.db=await new Promise(resolve=>{
+    const request=indexedDB.open("bsend.local-received.v066",1);
+    request.onsuccess=()=>{
+      const db=request.result,tx=db.transaction("files","readonly"),get=tx.objectStore("files").getAll();
+      get.onsuccess=()=>{const v=get.result;db.close();resolve(v.map(x=>({id:x.id,name:x.name,bytes:x.blob?.size})))};
+      get.onerror=()=>{db.close();resolve({error:String(get.error)})};
+    };
+    request.onerror=()=>resolve({error:String(request.error)});
+   });
+   return dom;
+  });
+  console.log("RESTORE DIAGNOSTIC",JSON.stringify({diagnostic,errors}));
+  throw e;
+ }
  await page.getByRole("button",{name:"Xem"}).first().click();
  await page.locator("#previewModal:not(.hidden) img").waitFor();
  console.log("PASS Safari finished-file persists across page reload without cloud storage");
