@@ -139,6 +139,7 @@ struct SendV2Home: View {
                     linkCard(url)
                 }
                 actionButtons
+                lanInstructions
                 HStack {
                     Text("File đã chọn")
                         .font(.system(size: 15, weight: .semibold, design: .rounded))
@@ -193,7 +194,7 @@ struct SendV2Home: View {
                         }
                     }
                 }
-                Text("Thiết bị phải kết nối được với nhau qua Wi-Fi nội bộ. Giữ ứng dụng mở trong khi chuyển.")
+                Text("PC có thể dùng dây LAN, iPhone dùng Wi-Fi cùng router. Giữ B Send mở khi truyền.")
                     .font(.system(size: 10)).foregroundStyle(SendStyle.secondary)
             }
             .padding(.horizontal, 19).padding(.top, 8).padding(.bottom, 22)
@@ -233,6 +234,18 @@ struct SendV2Home: View {
                 }
                 .frame(maxWidth: .infinity).frame(height: 104)
             }
+            if let progress = store.transferProgress {
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack {
+                        Text(store.transferTitle).lineLimit(1).truncationMode(.middle)
+                        Spacer(minLength: 4)
+                        Text("\(Int(progress * 100))%")
+                            .fontWeight(.semibold).foregroundStyle(SendStyle.accent)
+                    }
+                    .font(.system(size: 10))
+                    ProgressView(value: progress).tint(SendStyle.accent)
+                }
+            }
             if !store.message.isEmpty {
                 Text(store.message).font(.system(size: 10))
                     .foregroundStyle(SendStyle.secondary)
@@ -241,6 +254,54 @@ struct SendV2Home: View {
             }
         }
         .frame(maxWidth: .infinity).sendGlass()
+    }
+    private var lanInstructions: some View {
+        VStack(alignment: .leading, spacing: 9) {
+            HStack(spacing: 8) {
+                Image(systemName: "desktopcomputer.and.arrow.down")
+                    .foregroundStyle(SendStyle.accent)
+                Text("PC dây LAN + iPhone Wi-Fi")
+                    .font(.system(size: 12, weight: .semibold))
+                Spacer(minLength: 0)
+                Text("HỖ TRỢ")
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundStyle(.green)
+            }
+            Text("Hai thiết bị không bắt buộc cùng loại kết nối; chỉ cần nằm trong mạng nội bộ có thể liên lạc với nhau.")
+                .font(.system(size: 10))
+                .foregroundStyle(SendStyle.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            if let address = store.wifiIP {
+                HStack {
+                    Text("IP iPhone")
+                    Spacer()
+                    Text(address)
+                        .font(.system(size: 11, weight: .medium, design: .monospaced))
+                        .foregroundStyle(SendStyle.accent)
+                }.font(.system(size: 10)).foregroundStyle(SendStyle.secondary)
+            } else {
+                Label("Chưa phát hiện IP Wi-Fi của iPhone", systemImage: "wifi.slash")
+                    .font(.system(size: 10)).foregroundStyle(.orange)
+            }
+            HStack(alignment: .top, spacing: 7) {
+                Image(systemName: "1.circle.fill").foregroundStyle(SendStyle.accent)
+                Text("PC cắm dây vào router; iPhone kết nối Wi-Fi của cùng router.")
+            }
+            HStack(alignment: .top, spacing: 7) {
+                Image(systemName: "2.circle.fill").foregroundStyle(SendStyle.accent)
+                Text("Bật chia sẻ trên iPhone, nhập nguyên link hiện ra vào Chrome/Edge trên PC.")
+            }
+            HStack(alignment: .top, spacing: 7) {
+                Image(systemName: "3.circle.fill").foregroundStyle(SendStyle.accent)
+                Text("Tải file xuống hoặc chọn file trên PC để gửi ngược vào iPhone.")
+            }
+            .font(.system(size: 10))
+            Text("Nếu trang không mở: kiểm tra Guest Wi-Fi / AP Isolation / VLAN; không phải cứ có Internet là hai máy nhìn thấy nhau.")
+                .font(.system(size: 10)).foregroundStyle(SendStyle.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .font(.system(size: 10))
+        .sendGlass()
     }
     private func linkCard(_ link: String) -> some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -351,7 +412,7 @@ struct SendV2Home: View {
             VStack(alignment: .leading, spacing: 13) {
                 Text("Kết nối & riêng tư").font(.system(size: 20, weight: .bold, design: .rounded))
                 VStack(alignment: .leading, spacing: 11) {
-                    Label("Truyền qua Wi-Fi nội bộ, không tải lên đám mây", systemImage: "wifi")
+                    Label("PC dùng LAN + iPhone dùng Wi-Fi cùng mạng", systemImage: "network")
                     Label("Không cần tài khoản đăng nhập", systemImage: "person.crop.circle.badge.checkmark")
                     Label("Mã phiên thay đổi khi bật lại chia sẻ", systemImage: "lock.shield")
                 }.font(.system(size: 12)).sendGlass()
@@ -359,12 +420,12 @@ struct SendV2Home: View {
                     Label("Bảo mật kết nối", systemImage: "exclamationmark.shield")
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundStyle(.yellow)
-                    Text("Bản v0.2 sử dụng HTTP nội bộ chưa mã hóa. Chỉ dùng trên Wi-Fi tin cậy; không gửi CCCD, tài liệu ngân hàng, dữ liệu khách hàng hoặc thông tin nhạy cảm.")
+                    Text("Bản v0.3 sử dụng HTTP nội bộ chưa mã hóa. Chỉ dùng trên Wi-Fi tin cậy; không gửi CCCD, tài liệu ngân hàng, dữ liệu khách hàng hoặc thông tin nhạy cảm.")
                         .font(.system(size: 11)).foregroundStyle(SendStyle.secondary)
                     Text("File tối đa 1 GiB. Giữ B Send ở màn hình trước trong lúc truyền. Một số Wi-Fi công cộng chặn liên lạc giữa thiết bị.")
                         .font(.system(size: 11)).foregroundStyle(SendStyle.secondary)
                 }.sendGlass()
-                Text("B Send · v0.2 · Bách App")
+                Text("B Send · v0.3 LAN · Bách App")
                     .font(.system(size: 10)).foregroundStyle(SendStyle.secondary.opacity(0.75))
             }.padding(.horizontal, 19).padding(.top, 10)
         }
