@@ -20,6 +20,8 @@ final class BSendOnlineModel: ObservableObject {
     static let relay = "https://bachsend-relay.mrbach222.workers.dev"
 
     @Published private(set) var shareURL: String?
+    @Published private(set) var privateDeviceURL: String?
+    @Published var deviceName: String = UserDefaults.standard.string(forKey: "bsend.deviceDisplayName") ?? "iPhone của tôi"
     @Published private(set) var shortCode: String?
     @Published private(set) var shortURL: String?
     @Published private(set) var pendingVerification = false
@@ -68,8 +70,29 @@ final class BSendOnlineModel: ObservableObject {
     var maySend: Bool { connected && peerOnline && pairingApproved && !busy }
     var canClose: Bool { connected || connecting || shortCode != nil }
 
+    init() {
+        // The link is stable across sessions. Never store its secret in UserDefaults.
+        privateDeviceURL = try? BSendDeviceIdentity.loadOrCreate().privateLink
+    }
+
     func start() {
         guard !isActive else { return }
+        let identity: BSendDeviceIdentity
+        let requestPayload: Data
+        do {
+            identity = try BSendDeviceIdentity.loadOrCreate()
+            let cleanName = String(deviceName.prefix(48)).trimmingCharacters(in: .whitespacesAndNewlines)
+            UserDefaults.standard.set(cleanName, forKey: "bsend.deviceDisplayName")
+            requestPayload = try JSONSerialization.data(withJSONObject: [
+                "deviceId": identity.id,
+                "deviceSecret": identity.secret,
+                "deviceName": cleanName.isEmpty ? "iPhone" : cleanName
+            ])
+            privateDeviceURL = identity.privateLink
+        } catch {
+            message = "Không tạo được link riêng: \(error.localizedDescription)"
+            return
+        }
         stop(clearStatus: false)
         connecting = true
         message = "Đang tạo phiên truyền file trên Cloudflare..."
@@ -85,13 +108,13 @@ final class BSendOnlineModel: ObservableObject {
                 var request = URLRequest(url: url)
                 request.httpMethod = "POST"
                 request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-                request.httpBody = Data("{}".utf8)
+                request.httpBody = requestPayload
                 request.timeoutInterval = 20
                 let (body, response) = try await URLSession.shared.data(for: request)
                 guard marker == self.sessionMarker else { return }
                 guard let http = response as? HTTPURLResponse, http.statusCode == 201 else {
                     throw NSError(domain: "BSend", code: 2, userInfo: [
-                        NSLocalizedDescriptionKey: "Máy chủ chưa tạo được phiên. Hãy kiểm tra Workers / Durable Objects."
+                        NSLocalizedDescriptionKey: "Máy chủ chưa tạo được phiên riêng cho iPhone. Cần cập nhật Cloudflare Worker v0.6."
                     ])
                 }
                 let session = try JSONDecoder().decode(BSendOnlineSession.self, from: body)
