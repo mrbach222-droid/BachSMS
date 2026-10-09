@@ -1,4 +1,5 @@
 import SwiftUI
+import Combine
 import PhotosUI
 import UniformTypeIdentifiers
 import UIKit
@@ -39,6 +40,7 @@ struct SendV2Home: View {
     @State private var photoItems: [PhotosPickerItem] = []
     @State private var copied = false
     @State private var removeAll = false
+    @State private var showPurgeEverything = false
     @State private var mediaSavingURL: URL?
     @State private var mediaSaveResult = ""
     @State private var showMediaSaveResult = false
@@ -66,10 +68,23 @@ struct SendV2Home: View {
                 bottomBar
             }
         }
-        .onAppear { online.didReceive = { store.refresh() } }
+        .onAppear {
+            online.didReceive = { store.refresh() }
+            online.didUpload = { id in store.remove(id) }
+            store.purgeExpiredIfIdle(onlineBusy: online.busy)
+            store.refresh()
+        }
+        .onReceive(Timer.publish(every: 60, on: .main, in: .common).autoconnect()) { _ in
+            guard !online.busy && !store.active else { return }
+            store.purgeExpiredIfIdle(onlineBusy: online.busy)
+            store.refresh()
+        }
         .onChange(of: scenePhase) { _, phase in
             if phase == .background { online.pauseForBackground() }
-            if phase == .active { online.resumeAfterBackground() }
+            if phase == .active {
+                online.resumeAfterBackground()
+                if !online.busy { store.purgeExpiredIfIdle(); store.refresh() }
+            }
         }
         .tint(SendStyle.accent)
         .preferredColorScheme(.dark)
@@ -102,6 +117,14 @@ struct SendV2Home: View {
             }
         } message: {
             Text("Chỉ xóa bản sao trong B Send, không xóa file gốc.")
+        }
+        .confirmationDialog("Xóa toàn bộ bản sao trong B Send?", isPresented: $showPurgeEverything) {
+            Button("Dừng truyền và Xóa tất cả", role: .destructive) {
+                online.stop()
+                store.clearAllManagedFiles()
+            }
+        } message: {
+            Text("Chỉ xóa file nằm trong vùng lưu của B Send. File gốc trong Ảnh/Tệp và file bạn đã lưu trên PC không bị xóa.")
         }
         .alert("Lưu vào ứng dụng Ảnh", isPresented: $showMediaSaveResult) {
             Button("Đóng", role: .cancel) {}
@@ -305,6 +328,14 @@ struct SendV2Home: View {
                             }
                             .font(.system(size: 10))
                             ProgressView(value: online.progress).tint(SendStyle.accent)
+                            HStack {
+                                Text(String(format: "%.2f MB/s", online.uploadMBps))
+                                    .foregroundStyle(SendStyle.accent)
+                                Spacer()
+                                Text("ETA: \(Int(max(0, online.remainingSeconds))) giây")
+                                    .foregroundStyle(SendStyle.secondary)
+                            }
+                            .font(.system(size: 10, design: .monospaced))
                         }
                     }
                 }
@@ -317,7 +348,29 @@ struct SendV2Home: View {
                     Text("\(store.outgoing.count)")
                         .font(.system(size: 11))
                         .foregroundStyle(SendStyle.accent)
+                    Button { showPurgeEverything = true } label: {
+                        Label("Xóa hết", systemImage: "trash")
+                            .font(.system(size: 10))
+                            .foregroundStyle(.red.opacity(0.9))
+                    }
                 }
+                VStack(alignment: .leading, spacing: 7) {
+                    HStack {
+                        Label("Turbo Transfer", systemImage: "bolt.fill")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(SendStyle.accent)
+                        Spacer()
+                        Text("Tối ưu theo kết nối").font(.system(size: 10))
+                            .foregroundStyle(SendStyle.secondary)
+                    }
+                    Picker("Chế độ upload", selection: $online.turboMode) {
+                        Text("Tự động").tag("Tự động")
+                        Text("Turbo").tag("Turbo")
+                        Text("Ổn định").tag("Ổn định")
+                    }
+                    .pickerStyle(.segmented)
+                    .disabled(online.busy)
+                }.sendGlass()
                 HStack(spacing: 9) {
                     Button { showFiles = true } label: {
                         Label("Chọn từ Tệp", systemImage: "folder.badge.plus")
@@ -334,6 +387,10 @@ struct SendV2Home: View {
                     }
                     .background(SendStyle.card, in: RoundedRectangle(cornerRadius: 12))
                 }
+                Text("File gửi tạm tự xóa khi PC nhận đủ. File đã nhận và bản sao còn lại tự dọn sau 60 phút khi app hoạt động.")
+                    .font(.system(size: 10))
+                    .foregroundStyle(SendStyle.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
                 Text("Chọn một tệp mỗi lần · có thể chọn tiếp để thêm nhiều tệp.")
                     .font(.system(size: 10))
                     .foregroundStyle(SendStyle.secondary)
@@ -648,8 +705,13 @@ struct SendV2Home: View {
                     Button { store.refresh() } label: {
                         Image(systemName: "arrow.clockwise").font(.system(size: 14))
                     }
+                    Button { showPurgeEverything = true } label: {
+                        Label("Xóa tất cả", systemImage: "trash")
+                            .font(.system(size: 10))
+                            .foregroundStyle(.red.opacity(0.9))
+                    }
                 }
-                Text("File từ PC hoặc LAN được lưu trong B Send. Ảnh/video có thể lưu thêm vào thư viện Ảnh.")
+                Text("File nhận chỉ lưu tạm trong B Send, tự dọn sau 60 phút khi app hoạt động. Hãy lưu ảnh/video vào Ảnh hoặc xuất ra Tệp nếu muốn giữ.")
                     .fixedSize(horizontal: false, vertical: true)
                     .font(.system(size: 11)).foregroundStyle(SendStyle.secondary)
                 if store.incoming.isEmpty {
@@ -702,7 +764,8 @@ struct SendV2Home: View {
         defer { mediaSavingURL = nil }
         do {
             try await BSendMediaLibrary.save(file)
-            mediaSaveResult = "Đã lưu \(file.name) vào thư viện Ảnh. File trong B Send vẫn được giữ nguyên."
+            store.delete(file)
+            mediaSaveResult = "Đã lưu \(file.name) vào thư viện Ảnh và xóa bản sao tạm trong B Send."
         } catch {
             mediaSaveResult = "Chưa lưu được \(file.name): \(error.localizedDescription)"
         }
@@ -727,7 +790,22 @@ struct SendV2Home: View {
                     Text("File tối đa 1 GiB. Giữ B Send ở màn hình trước trong lúc truyền. Một số Wi-Fi công cộng chặn liên lạc giữa thiết bị.")
                         .font(.system(size: 11)).foregroundStyle(SendStyle.secondary)
                 }.sendGlass()
-                Text("B Send · v0.5.4 Large Transfer · Bách App")
+                VStack(alignment: .leading, spacing: 11) {
+                    Label("Không lưu file trên Cloudflare", systemImage: "icloud.slash")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(SendStyle.accent)
+                    Text("Relay chỉ chuyển tiếp dữ liệu mã hóa. File đã nhận được giữ tạm trong B Send tối đa 60 phút (dọn khi app hoạt động). File gửi được dọn ngay sau khi xác nhận truyền thành công. File gốc không bị xóa.")
+                        .font(.system(size: 11)).foregroundStyle(SendStyle.secondary)
+                    Button { showPurgeEverything = true } label: {
+                        Label("Xóa toàn bộ dữ liệu tạm", systemImage: "trash.fill")
+                            .font(.system(size: 12, weight: .bold))
+                            .frame(maxWidth: .infinity).frame(height: 44)
+                            .foregroundStyle(.white)
+                            .background(.red.opacity(0.73), in: RoundedRectangle(cornerRadius: 11))
+                            .contentShape(RoundedRectangle(cornerRadius: 11))
+                    }.buttonStyle(.plain)
+                }.sendGlass()
+                Text("B Send · v0.5.5 Turbo & Privacy · Bách App")
                     .font(.system(size: 10)).foregroundStyle(SendStyle.secondary.opacity(0.75))
             }.padding(.horizontal, 19).padding(.top, 10)
         }
