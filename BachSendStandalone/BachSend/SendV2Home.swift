@@ -44,6 +44,8 @@ struct SendV2Home: View {
     @State private var askForgetPersonalPCs = false
     @State private var removeAll = false
     @State private var showPurgeEverything = false
+    @State private var previewURL: URL?
+    @State private var savedMediaURLs: Set<URL> = []
     @State private var mediaSavingURL: URL?
     @State private var mediaSaveResult = ""
     @State private var showMediaSaveResult = false
@@ -137,6 +139,7 @@ struct SendV2Home: View {
         } message: {
             Text("Chỉ xóa file nằm trong vùng lưu của B Send. File gốc trong Ảnh/Tệp và file bạn đã lưu trên PC không bị xóa.")
         }
+        .quickLookPreview($previewURL)
         .alert("Lưu vào ứng dụng Ảnh", isPresented: $showMediaSaveResult) {
             Button("Đóng", role: .cancel) {}
         } message: {
@@ -769,7 +772,7 @@ struct SendV2Home: View {
                             .foregroundStyle(.red.opacity(0.9))
                     }
                 }
-                Text("File nhận chỉ lưu tạm trong B Send, tự dọn sau 60 phút khi app hoạt động. Hãy lưu ảnh/video vào Ảnh hoặc xuất ra Tệp nếu muốn giữ.")
+                Text("Ảnh/video: chạm tên file để xem trước, bấm Lưu vào Ảnh để thêm vào album. PDF/IPA/ZIP: bấm Chia sẻ để lưu vào Tệp. File đã nhận được giữ trong B Send đến khi bạn chủ động xóa.")
                     .fixedSize(horizontal: false, vertical: true)
                     .font(.system(size: 11)).foregroundStyle(SendStyle.secondary)
                 if store.incoming.isEmpty {
@@ -781,14 +784,24 @@ struct SendV2Home: View {
                 LazyVStack(spacing: 8) {
                     ForEach(showAllReceivedFiles ? store.incoming : Array(store.incoming.prefix(7))) { file in
                         HStack(spacing: 11) {
-                            SendFileThumbnail(url: file.url, width: 39, height: 40)
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(file.name).font(.system(size: 12, weight: .medium))
-                                    .lineLimit(1).truncationMode(.middle)
-                                Text(ByteCountFormatter.string(fromByteCount: file.size, countStyle: .file))
-                                    .font(.system(size: 10)).foregroundStyle(SendStyle.secondary)
+                            Button {
+                                // Quick Look plays video and previews photos in-place,
+                                // without duplicating or moving the original file.
+                                previewURL = file.url
+                            } label: {
+                                HStack(spacing: 8) {
+                                    SendFileThumbnail(url: file.url, width: 40, height: 42)
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        Text(file.name).font(.system(size: 12, weight: .medium))
+                                            .lineLimit(1).truncationMode(.middle)
+                                        Text(ByteCountFormatter.string(fromByteCount: file.size, countStyle: .file))
+                                            .font(.system(size: 10)).foregroundStyle(SendStyle.secondary)
+                                    }
+                                }
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .contentShape(Rectangle())
                             }
-                            Spacer(minLength: 0)
+                            .buttonStyle(.plain)
                             if BSendMediaLibrary.isSupported(file) {
                                 Button {
                                     Task { await saveMediaToPhotos(file) }
@@ -796,15 +809,21 @@ struct SendV2Home: View {
                                     if mediaSavingURL == file.url {
                                         ProgressView().controlSize(.small)
                                     } else {
-                                        Image(systemName: "photo.on.rectangle.angled")
-                                            .foregroundStyle(SendStyle.accent)
+                                        Label(savedMediaURLs.contains(file.url) ? "Đã lưu" : "Lưu Ảnh",
+                                              systemImage: savedMediaURLs.contains(file.url)
+                                                ? "checkmark.circle.fill" : "photo.badge.arrow.down")
+                                            .font(.system(size: 10, weight: .semibold))
+                                            .foregroundStyle(savedMediaURLs.contains(file.url) ? Color.green : SendStyle.accent)
                                     }
                                 }
                                 .disabled(mediaSavingURL != nil)
-                                .accessibilityLabel("Lưu \(file.name) vào Ảnh")
-                            }
-                            ShareLink(item: file.url) {
-                                Image(systemName: "square.and.arrow.up")
+                                .accessibilityLabel("Lưu \(file.name) vào album Ảnh")
+                            } else {
+                                ShareLink(item: file.url) {
+                                    Label("Tệp", systemImage: "square.and.arrow.up")
+                                        .font(.system(size: 10, weight: .semibold))
+                                        .foregroundStyle(SendStyle.accent)
+                                }
                             }
                             Button(role: .destructive) { store.delete(file) } label: {
                                 Image(systemName: "trash")
@@ -832,8 +851,8 @@ struct SendV2Home: View {
         defer { mediaSavingURL = nil }
         do {
             try await BSendMediaLibrary.save(file)
-            store.delete(file)
-            mediaSaveResult = "Đã lưu \(file.name) vào thư viện Ảnh và xóa bản sao tạm trong B Send."
+            savedMediaURLs.insert(file.url)
+            mediaSaveResult = "Đã lưu \(file.name) vào album Ảnh. Bản sao trong B Send vẫn còn để xem lại; bạn có thể xóa thủ công."
         } catch {
             mediaSaveResult = "Chưa lưu được \(file.name): \(error.localizedDescription)"
         }
@@ -873,7 +892,7 @@ struct SendV2Home: View {
                             .contentShape(RoundedRectangle(cornerRadius: 11))
                     }.buttonStyle(.plain)
                 }.sendGlass()
-                Text("B Send · v0.6.5 Compact List · Bách App")
+                Text("B Send · v0.6.6 Reliable Receive · Bách App")
                     .font(.system(size: 10)).foregroundStyle(SendStyle.secondary.opacity(0.75))
             }.padding(.horizontal, 19).padding(.top, 10)
         }
