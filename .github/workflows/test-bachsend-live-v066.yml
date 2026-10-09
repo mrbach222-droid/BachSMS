@@ -1,0 +1,53 @@
+name: Live B Send v0.6.6 Reliable Safari Receive
+on:
+  push:
+    branches: [bachsend-v066-reliable-receive-media]
+    paths:
+      - '.github/workflows/test-bachsend-live-v066.yml'
+  workflow_dispatch:
+jobs:
+  safari-live:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: BachSendCloudflare
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install WebKit
+        run: |
+          npm install --no-audit --no-fund
+          npm install --no-save playwright@1.58.2
+          npx playwright install --with-deps webkit
+      - name: Wait for Cloudflare v0.6.6 deployment
+        run: |
+          node --input-type=module <<'NODE'
+          const url="https://bachsend-relay.mrbach222.workers.dev/";
+          let ready=false;
+          for(let i=0;i<55;i++){
+            try{
+             const r=await fetch(url,{cache:"no-store",headers:{"Cache-Control":"no-cache"}});
+             const h=await r.text();
+             if(r.ok&&h.includes("v0.6.6 Reliable Receive")&&
+                h.includes("bsend.local-received.v066")&&
+                h.includes("saveIntoPhotos(")&&
+                h.includes("checkOwnerRoom(")&&
+                h.includes("restoreReceivedFiles()")){
+               ready=true;console.log("PASS Cloudflare v0.6.6 reliable receive deployed");break;
+             }
+            }catch(e){console.log(e.message)}
+            await new Promise(r=>setTimeout(r,4000));
+          }
+          if(!ready)process.exit(1);
+          NODE
+      - name: Validate live Safari WebKit encrypted photo preview and file restore
+        env:
+          BSEND_BASE: https://bachsend-relay.mrbach222.workers.dev
+        run: node test/safari-receive-v066.mjs
+      - name: Validate two isolated private iPhone rooms on live Cloudflare
+        env:
+          BSEND_BASE: https://bachsend-relay.mrbach222.workers.dev
+        run: node test/multi-device-v060.mjs
