@@ -1,0 +1,15 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "bachsend-relay",
+  "main": "src/index.js",
+  "compatibility_date": "2026-10-01",
+  "durable_objects": {
+    "bindings": [
+      { "name": "SESSIONS", "class_name": "TransferRoom" }
+    ]
+  },
+  "exports": {
+    "TransferRoom": { "type": "durable-object", "storage": "sqlite" }
+  },
+  "observability": { "enabled": true }
+}
