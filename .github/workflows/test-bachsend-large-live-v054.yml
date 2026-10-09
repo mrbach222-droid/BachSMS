@@ -1,0 +1,19 @@
+name: Live B Send v0.5.4 52 MiB encrypted transfer
+on:
+  push:
+    branches: [bachsend-v054-large-transfer]
+    paths:
+      - 'BachSendCloudflare/test/live-large-v054.mjs'
+      - '.github/workflows/test-bachsend-large-live-v054.yml'
+  workflow_dispatch:
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Verify encrypted transfer >50 MiB through production
+        run: node BachSendCloudflare/test/live-large-v054.mjs
