@@ -1,0 +1,43 @@
+name: Live B Send v0.6.3 Mobile Receive
+on:
+  push:
+    branches: [bachsend-v063-mobile-web-receive]
+    paths:
+      - '.github/workflows/test-bachsend-live-v063.yml'
+  workflow_dispatch:
+jobs:
+  live:
+    runs-on: ubuntu-latest
+    timeout-minutes: 9
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Await Cloudflare deployment with Safari mobile receive controls
+        run: |
+          node --input-type=module <<'NODE'
+          const url="https://bachsend-relay.mrbach222.workers.dev/";
+          let ready=false;
+          for(let i=0;i<60;i++){
+            try{
+              const response=await fetch(url,{cache:"no-store",headers:{"Cache-Control":"no-cache"}});
+              const html=await response.text();
+              if(response.ok && html.includes("B Send v0.6.3 Mobile Receive") &&
+                 html.includes('id="incomingRow"') &&
+                 html.includes("RECEIVE_MEMORY_LIMIT") &&
+                 html.includes("Lưu vào Tệp / Chia sẻ") &&
+                 html.includes("clearReceived.onclick=clearOnlyReceived")){
+                ready=true;console.log("PASS v0.6.3 production Safari/web receive UI");
+                break;
+              }
+              console.log("Waiting for production v0.6.3...");
+            }catch(e){console.log("Cloudflare pending",e.message)}
+            await new Promise(r=>setTimeout(r,4000));
+          }
+          if(!ready)process.exit(1);
+          NODE
+      - name: Verify isolated private devices on deployed Cloudflare Worker
+        env:
+          BSEND_BASE: https://bachsend-relay.mrbach222.workers.dev
+        run: node BachSendCloudflare/test/multi-device-v060.mjs
