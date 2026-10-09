@@ -37,7 +37,7 @@ export class BSendSHA256 {
     for(let i=0;i<64;i++){
       const s1=rr(e,6)^rr(e,11)^rr(e,25);
       const ch=(e&f)^(~e&g);
-      const t1=(h+s1+ch+BSendSHA256.K[i]+w[i])>>>0;
+      const t1=(h+s1+ch+this.constructor.K[i]+w[i])>>>0;
       const s0=rr(a,2)^rr(a,13)^rr(a,22);
       const maj=(a&b)^(a&c)^(b&c);
       const t2=(s0+maj)>>>0;
