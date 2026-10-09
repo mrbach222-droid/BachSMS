@@ -229,32 +229,86 @@ private final class HTTPPeer {
         }.joined(separator:"\n")
         return """
         <!doctype html><html lang="vi"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-        <title>Bách Send</title><style>
-        body{background:linear-gradient(135deg,#081429,#0b2844);color:#ecf8ff;font:16px system-ui;margin:0;min-height:100vh}
-        main{max-width:680px;margin:35px auto;padding:20px}.glass{border:1px solid #ffffff26;background:#ffffff12;padding:24px;border-radius:22px;margin:16px 0}
-        h1{font-size:31px}p{color:#b8c8d6}a.file{display:block;background:#ffffff18;border-radius:12px;margin:10px 0;padding:16px;color:#8deaff;text-decoration:none;overflow-wrap:anywhere}
-        button{background:#87e5ff;color:#031824;border:0;padding:13px 25px;border-radius:12px;font-weight:700}input{max-width:100%;margin:18px 0}
-        </style><main><div class="glass"><h1>↔ Bách Send</h1><p>Truyền file bằng Wi-Fi nội bộ. Không cần đăng nhập.</p></div>
-        <div class="glass"><h2>📥 Tải file từ iPhone</h2>\(links.isEmpty ? "<p>Chưa có file được chọn.</p>" : links)</div>
-        <div class="glass"><h2>📤 Gửi file vào iPhone</h2><input id="files" type="file" multiple>
-        <button onclick="sendFiles()">Gửi file</button><p id="status"></p>
-        <small>Giới hạn 1 GiB mỗi file. HTTP không mã hóa: chỉ dùng Wi-Fi đáng tin cậy.</small></div></main>
+        <title>Bách Send · LAN + Wi-Fi</title>
+        <style>
+        :root{color-scheme:dark}*{box-sizing:border-box}
+        body{background:linear-gradient(145deg,#07172f,#092342 55%,#050f25);
+             color:#e6f4ff;font:15px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;margin:0;min-height:100vh}
+        main{max-width:680px;margin:16px auto;padding:12px}
+        .glass{border:1px solid #ffffff20;background:#ffffff0b;padding:20px;border-radius:20px;margin:13px 0}
+        h1{font-size:26px;margin:0 0 6px}h2{font-size:16px;margin:0 0 12px}
+        p,small{color:#aebfd2;line-height:1.55}p{margin:4px 0 9px}
+        .brand{color:#77e6ff;font-weight:800}
+        a.file{display:block;background:#ffffff12;border:1px solid #ffffff11;border-radius:12px;
+            margin:9px 0;padding:14px;color:#8be8ff;text-decoration:none;overflow-wrap:anywhere}
+        button{background:#69e2ff;color:#031824;border:0;padding:12px 21px;border-radius:12px;font-weight:750;cursor:pointer}
+        button:disabled{opacity:.55}input{max-width:100%;margin:12px 0}
+        .bar{height:8px;background:#20334c;border-radius:8px;overflow:hidden;margin:12px 0}
+        .fill{height:100%;width:0%;background:#69e2ff;transition:width .18s linear}
+        .note{font-size:12px;color:#c3d1dd}.warning{color:#ffd58a}
+        </style><main>
+          <div class="glass"><h1><span class="brand">B</span> Send · LAN + Wi-Fi</h1>
+          <p>PC cắm dây Ethernet vẫn dùng được khi iPhone kết nối Wi-Fi cùng mạng nội bộ.</p>
+          <div class="note">Không cần cài phần mềm trên PC · Không cần đăng nhập</div></div>
+          <div class="glass"><h2>📥 Tải file từ iPhone</h2>
+          \(links.isEmpty ? "<p>Chưa có file được chọn trên iPhone.</p>" : links)
+          </div>
+          <div class="glass"><h2>📤 Chuyển file từ PC sang iPhone</h2>
+          <input id="files" type="file" multiple>
+          <div><button id="send" onclick="sendFiles()">Gửi vào iPhone</button></div>
+          <div class="bar"><div id="fill" class="fill"></div></div>
+          <p id="status" aria-live="polite">Chọn file để bắt đầu.</p>
+          <small class="warning">HTTP nội bộ chưa mã hóa: chỉ dùng mạng đáng tin cậy, không gửi tài liệu nhạy cảm.</small>
+          </div>
+          <div class="glass">
+          <h2>Không kết nối được?</h2>
+          <p>Kiểm tra PC và iPhone cùng router/mạng LAN, tắt Guest Wi-Fi hoặc AP Isolation nếu được phép.
+          Giữ B Send mở và màn hình iPhone không bị khóa.</p>
+          </div>
+        </main>
         <script>
         const token="\(token)";
+        const progressFill=document.getElementById('fill');
+        const status=document.getElementById('status');
+        const send=document.getElementById('send');
+        function uploadOne(file){
+          return new Promise((resolve,reject)=>{
+            const xhr=new XMLHttpRequest();
+            const url='/upload?token='+encodeURIComponent(token)+'&name='+encodeURIComponent(file.name);
+            xhr.open('POST',url);
+            xhr.timeout=600000;
+            xhr.upload.onprogress=e=>{
+              if(e.lengthComputable && e.total>0){
+                const pct=Math.round(e.loaded/e.total*100);
+                progressFill.style.width=pct+'%';
+                status.textContent='Đang gửi '+file.name+' · '+pct+'%';
+              }
+            };
+            xhr.onload=()=>{
+              if(xhr.status===200){resolve();}
+              else{reject(new Error('Máy chủ trả lỗi '+xhr.status));}
+            };
+            xhr.onerror=()=>reject(new Error('Mất kết nối Wi-Fi / LAN'));
+            xhr.ontimeout=()=>reject(new Error('Hết thời gian chờ'));
+            xhr.send(file);
+          });
+        }
         async function sendFiles(){
-          const files=document.getElementById("files").files;
-          const status=document.getElementById("status");
-          if(!files.length){status.textContent="Hãy chọn file";return;}
-          for(const f of files){
-            status.textContent="Đang gửi "+f.name;
-            try{
-              const url="/upload?token="+encodeURIComponent(token)+"&name="+encodeURIComponent(f.name);
-              const result=await fetch(url,{method:"POST",body:f,headers:{"Content-Type":"application/octet-stream"}});
-              if(!result.ok)throw new Error("HTTP "+result.status);
-              status.textContent="Đã gửi "+f.name;
-            }catch(err){status.textContent="Lỗi gửi: "+err.message;break;}
-          }
-        }</script></html>
+          const files=document.getElementById('files').files;
+          if(!files.length){status.textContent='Hãy chọn ít nhất một file';return;}
+          send.disabled=true;
+          try{
+            for(let i=0;i<files.length;i++){
+              progressFill.style.width='0%';
+              status.textContent='File '+(i+1)+'/'+files.length+': '+files[i].name;
+              await uploadOne(files[i]);
+            }
+            progressFill.style.width='100%';
+            status.textContent='Đã chuyển thành công '+files.length+' file vào iPhone.';
+          }catch(error){status.textContent='Lỗi: '+error.message;}
+          finally{send.disabled=false;}
+        }
+        </script></html>
         """
     }
 }
