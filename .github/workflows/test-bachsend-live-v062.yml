@@ -1,0 +1,40 @@
+name: Live B Send v0.6.2 Personal Quick Connect
+on:
+  push:
+    branches: [bachsend-v062-personal-quick-connect]
+    paths:
+      - '.github/workflows/test-bachsend-live-v062.yml'
+  workflow_dispatch:
+jobs:
+  live:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Wait for Cloudflare Personal Quick Connect page
+        run: |
+          node --input-type=module <<'NODE'
+          const base="https://bachsend-relay.mrbach222.workers.dev";
+          let ready=false;
+          for(let i=0;i<65;i++){
+            try{
+              const page=await fetch(base+"/",{cache:"no-store",headers:{"Cache-Control":"no-cache"}}).then(r=>r.text());
+              if(page.includes("personalKeyPair(currentDeviceId)")&&
+                 page.includes("connectDevice(chosen)")&&
+                 page.includes("trust-proof")){
+                ready=true;console.log("PASS production B Send v0.6.2 Personal Quick Connect web");
+                break;
+              }
+              console.log("Waiting for v0.6.2 web...");
+            }catch(e){console.log(e.message)}
+            await new Promise(done=>setTimeout(done,4000));
+          }
+          if(!ready)process.exit(1);
+          NODE
+      - name: Verify parallel private iPhones on production Worker
+        env:
+          BSEND_BASE: https://bachsend-relay.mrbach222.workers.dev
+        run: node BachSendCloudflare/test/multi-device-v060.mjs
