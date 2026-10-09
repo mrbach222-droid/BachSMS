@@ -22,8 +22,9 @@ assert.equal(health.shortCodes,true);
 console.log("PASS live Cloudflare 0.5 health");
 
 const created=await fetch(base+"/api/session",{method:"POST",headers:{"content-type":"application/json"},body:"{}"});
-assert.equal(created.status,201,await created.text().catch(()=>""));
-const room=await created.json();
+const raw=await created.text();
+assert.equal(created.status,201,raw);
+const room=JSON.parse(raw);
 assert.match(room.code,/^[A-HJ-NP-Z2-9]{8}$/);
 assert.equal(room.shortURL,base+"/p/"+room.code);
 assert.match(room.ownerWebSocketURL,/^wss:/);
