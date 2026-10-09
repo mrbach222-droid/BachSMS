@@ -62,8 +62,10 @@ assert(page.includes('id="desktopFolder"') && page.includes("canDirectorySave"),
        "Directory chooser should be optional and hidden on mobile browsers");
 assert(page.includes('id="folder"') && page.includes('id="clearReceived"'),
        "Optional desktop streaming and received cleanup must remain available");
-assert(page.includes('Lưu vào Tệp / Chia sẻ') && page.includes('a.textContent="⬇ Tải xuống"'),
-       "Received file must have direct download and mobile share/save controls");
+assert(page.includes('Lưu vào Tệp / Chia sẻ') &&
+       page.includes('a.textContent=mobileBrowser?"⬇":"⬇ Tải xuống"') &&
+       page.includes('menu.className="filemenu"'),
+       "Compact Safari files must retain download and share/save menu controls");
 assert(page.includes("previewURLs=new Set(),receivedURLs=new Set()"),
        "Received download URLs should not be revoked by outgoing file preview changes");
 assert(page.includes("clearButton.onclick=clearOutgoing") &&
@@ -72,6 +74,8 @@ assert(page.includes("clearButton.onclick=clearOutgoing") &&
 assert(!page.includes('reason:"select-directory"'),
        "Safari receiving must not reject >128 MB files demanding a directory picker");
 assert(page.includes('revokePreviewURLs()'),"Preview URL cleanup missing");
+assert(page.includes('id="receivedSearch"') && page.includes("compactLists()"),"Compact list search, collapse and expand controls missing");
+assert(page.includes("thumb{width:42px") && page.includes("listtools"),"Compact file thumbnail and list layout missing");
 assert(page.includes("class BSendSHA256"),"Pure JS SHA-256 implementation must be embedded into browser");
 assert(!page.includes("BSEND_SHA256_IMPL_PLACEHOLDER"),"No uncompiled SHA-256 source marker");
 assert(page.includes('type:"file-ready"') && page.includes("fileReady.set("),
@@ -84,4 +88,4 @@ assert(page.includes("pendingOutgoingFiles") && page.includes("resumeQueuedBrows
        "Browser sender must retry its queued file after reconnect");
 assert(page.includes("updateIncomingView(incoming)") && page.includes('a.textContent="⬇ Tải xuống"'),
        "Safari direct receive must remain available");
-console.log("PASS B Send v0.6.4 Smart Resume + SHA-256, Safari receive, Personal Quick Connect and Turbo");
+console.log("PASS B Send v0.6.5 Compact List, Safari download/share, Smart Resume, SHA-256 and Personal Quick Connect");
