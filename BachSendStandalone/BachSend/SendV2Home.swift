@@ -64,8 +64,9 @@ struct SendV2Home: View {
             }
         }
         .onAppear { online.didReceive = { store.refresh() } }
-        .onChange(of: scenePhase) { phase in
-            if phase == .background { online.stop() }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .background { online.pauseForBackground() }
+            if phase == .active { online.resumeAfterBackground() }
         }
         .tint(SendStyle.accent)
         .preferredColorScheme(.dark)
