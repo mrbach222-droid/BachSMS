@@ -521,6 +521,9 @@ final class BSendOnlineModel: ObservableObject {
                 if id == incomingID, size == incomingExpected,
                    Self.cleanName(name) == incomingName,
                    digest == incomingSHA256 {
+                    // Reset ACK grouping after resumption; otherwise the sender
+                    // can wait forever for a multiple-of-16 checkpoint.
+                    incomingChunks = 0
                     try await sendControl([
                         "type":"file-ready","id":id,"offset":incomingReceived
                     ])
