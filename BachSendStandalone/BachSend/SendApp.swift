@@ -256,5 +256,5 @@ private extension View {
     }
 }
 @main struct BachSendApp:App{
-    var body:some Scene{WindowGroup{SendHome()}}
+    var body:some Scene{WindowGroup{SendV2Home()}}
 }
