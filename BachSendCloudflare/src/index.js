@@ -7,6 +7,12 @@ import browserPage from "./page.js";
 const TTL = 60 * 60 * 1000;
 const TOKEN_PATTERN = /^[a-f0-9]{64}$/;
 const ROOM_PATTERN = /^[a-f0-9]{32}$/;
+const CODE_PATTERN = /^[A-HJ-NP-Z2-9]{8}$/;
+const ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+function shortCode(){
+  const bytes=crypto.getRandomValues(new Uint8Array(8));
+  return Array.from(bytes,v=>ALPHABET[v % ALPHABET.length]).join("");
+}
 const encoder = new TextEncoder();
 function nonce(length) {
   return Array.from(crypto.getRandomValues(new Uint8Array(length)),
@@ -22,6 +28,48 @@ function result(obj, status = 200) {
     "content-type": "application/json;charset=utf-8",
     "cache-control": "no-store", "x-content-type-options": "nosniff",
   } });
+}
+
+export class QuickCodes extends DurableObject {
+  async fetch(req){
+    const url=new URL(req.url);
+    if(url.pathname==="/register" && req.method==="POST"){
+      const {code,room,guestToken,expiresAt}=await req.json();
+      if(!CODE_PATTERN.test(code)||!ROOM_PATTERN.test(room)||!TOKEN_PATTERN.test(guestToken)||
+         !Number.isFinite(expiresAt))return result({error:"bad_data"},400);
+      const old=await this.ctx.storage.get("code:"+code);
+      if(old&&old.expiresAt>Date.now())return result({error:"collision"},409);
+      await this.ctx.storage.put("code:"+code,{room,guestToken,expiresAt});
+      const alarm=await this.ctx.storage.getAlarm();
+      if(!alarm||alarm>Date.now()+60000)await this.ctx.storage.setAlarm(Date.now()+60000);
+      return result({ok:true});
+    }
+    const m=url.pathname.match(/^\/resolve\/([A-HJ-NP-Z2-9]{8})$/);
+    if(m&&req.method==="GET"){
+      const ip=(req.headers.get("CF-Connecting-IP")||"unknown").slice(0,80);
+      const period=Math.floor(Date.now()/60000),key="ip:"+ip+":"+period;
+      const hits=await this.ctx.storage.get(key)||0;
+      if(hits>=12)return result({error:"rate_limited"},429);
+      await this.ctx.storage.put(key,hits+1);
+      const data=await this.ctx.storage.get("code:"+m[1]);
+      if(!data||data.expiresAt<=Date.now())return result({error:"not_found_or_expired"},404);
+      return result(data);
+    }
+    return result({error:"not_found"},404);
+  }
+  async alarm(){
+    const data=await this.ctx.storage.list(),now=Date.now(),period=Math.floor(now/60000);
+    let open=false;
+    for(const [key,value] of data){
+      if(key.startsWith("code:")){
+        if(value.expiresAt<=now)await this.ctx.storage.delete(key);
+        else open=true;
+      }else if(key.startsWith("ip:")&&Number(key.split(":").at(-1))<period-3){
+        await this.ctx.storage.delete(key);
+      }
+    }
+    if(open)await this.ctx.storage.setAlarm(now+60000);
+  }
 }
 
 export class TransferRoom extends DurableObject {
@@ -80,9 +128,11 @@ export class TransferRoom extends DurableObject {
       let frame;
       try { frame = JSON.parse(payload); } catch { return; }
       // Metadata is encrypted on iPhone/PC. Relay only forwards opaque sealed envelopes.
-      if (frame.type !== "enc" || typeof frame.blob !== "string" ||
+      if(frame.type === "key-offer" || frame.type === "key-answer"){
+        if(typeof frame.pub !== "string" || !/^[A-Za-z0-9+/=]{85,95}$/.test(frame.pub))return;
+      }else if (frame.type !== "enc" || typeof frame.blob !== "string" ||
           frame.blob.length < 40 || frame.blob.length > 4000 ||
-          !/^[A-Za-z0-9+/=]+$/.test(frame.blob)) return;
+          !/^[A-Za-z0-9+/=]+$/.test(frame.blob))return;
     } else if (payload.byteLength > 65536) {
       ws.close(1009, "Chunk too big"); return;
     }
@@ -115,11 +165,15 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url);
     if (url.pathname === "/" && request.method === "GET")
-      return new Response("B Send relay deployed. Open a pairing link issued by the iPhone.", {
-        headers: { "content-type": "text/plain;charset=utf-8", "cache-control": "no-store" },
+      return new Response(browserPage("", true), {
+        headers: { "content-type": "text/html;charset=utf-8", "cache-control": "no-store",
+          "referrer-policy": "no-referrer", "x-content-type-options": "nosniff",
+          "content-security-policy": "default-src 'none';frame-ancestors 'none';base-uri 'none';" +
+            "script-src 'unsafe-inline';style-src 'unsafe-inline';connect-src 'self' wss:;img-src 'self' data:",
+        }
       });
     if (url.pathname === "/api/health" && request.method === "GET")
-      return result({ status: "ready", version: "0.4-preview", transport: "wss" });
+      return result({ status: "ready", version: "0.5-quick", transport: "wss", shortCodes: true });
     if (url.pathname === "/api/session" && request.method === "POST") {
       const room = nonce(16), ownerToken = nonce(32), guestToken = nonce(32);
       const obj = env.SESSIONS.get(env.SESSIONS.idFromName(room));
@@ -129,12 +183,42 @@ export default {
       }));
       if (!create.ok) return result({ error: "create_failed" }, 502);
       const data = await create.json();
+      const dir=env.CODES.get(env.CODES.idFromName("quick-directory"));
+      let code=null;
+      for(let i=0;i<12;i++){
+        const candidate=shortCode();
+        const attempt=await dir.fetch(new Request("https://directory.internal/register",{
+          method:"POST",headers:{"content-type":"application/json"},
+          body:JSON.stringify({code:candidate,room,guestToken,expiresAt:data.expiresAt})
+        }));
+        if(attempt.ok){code=candidate;break;}
+      }
+      if(!code)return result({error:"quick_code_capacity"},503);
       return result({
+        code,
+        shortURL: url.origin+"/p/"+code,
         room, expiresAt: data.expiresAt,
         ownerWebSocketURL: "wss://" + url.host + "/api/room/" + room +
           "/ws?role=owner&token=" + ownerToken,
         guestURL: url.origin + "/s/" + room + "#" + guestToken,
       }, 201);
+    }
+    const lookup=url.pathname.match(/^\/api\/code\/([A-HJ-NP-Z2-9]{8})$/);
+    if(lookup&&request.method==="GET"){
+      const dir=env.CODES.get(env.CODES.idFromName("quick-directory"));
+      const requestToRoom=new Request("https://directory.internal/resolve/"+lookup[1],{
+        headers:{"CF-Connecting-IP":request.headers.get("CF-Connecting-IP")||"unknown"}
+      });
+      return dir.fetch(requestToRoom);
+    }
+    const short=url.pathname.match(/^\/p\/([A-HJ-NP-Z2-9]{8})$/);
+    if(short&&request.method==="GET"){
+      return new Response(browserPage(short[1],true),{
+        headers:{"content-type":"text/html;charset=utf-8","cache-control":"no-store",
+          "referrer-policy":"no-referrer","x-content-type-options":"nosniff",
+          "content-security-policy":"default-src 'none';frame-ancestors 'none';base-uri 'none';" +
+            "script-src 'unsafe-inline';style-src 'unsafe-inline';connect-src 'self' wss:;img-src 'self' data:"}
+      });
     }
     const page = url.pathname.match(/^\/s\/([a-f0-9]{32})$/);
     if (page && request.method === "GET") {
