@@ -1,15 +1,54 @@
-import struct, zlib, math
-W=1024
-def rgb(x,y):
-    d=((x-485)**2+(y-420)**2)**.5
-    bg=(int(9+10*y/W),int(19+25*y/W),int(42+32*y/W))
-    ring=abs(d-255)<32 and x>175 and y>110 and x<790 and y<760
-    handle=abs((x-465)-(y-740))<30 and 670<y<880 and 650<x<850
-    glow=d<225
-    if ring or handle:return (85,222,252)
-    if glow:return (16,70,109)
-    return bg
-raw=b''.join(b'\0'+b''.join(bytes(rgb(x,y)) for x in range(W)) for y in range(W))
-def c(tag,dat):return struct.pack('!I',len(dat))+tag+dat+struct.pack('!I',zlib.crc32(tag+dat)&0xffffffff)
-data=b'\x89PNG\r\n\x1a\n'+c(b'IHDR',struct.pack('!2I5B',W,W,8,2,0,0,0))+c(b'IDAT',zlib.compress(raw,6))+c(b'IEND',b'')
-open('BachFind/Assets.xcassets/AppIcon.appiconset/AppIcon.png','wb').write(data)
+# Offline app icon generator (stdlib only). Brand: B + PRODUCT.
+import math, struct, zlib
+SIZE=1024
+LABEL="FIND"
+font={
+"B":["11110","10001","10001","11110","10001","10001","11110"],
+"F":["11111","10000","10000","11110","10000","10000","10000"],
+"I":["11111","00100","00100","00100","00100","00100","11111"],
+"N":["10001","11001","10101","10101","10011","10001","10001"],
+"D":["11110","10001","10001","10001","10001","10001","11110"],
+"S":["01111","10000","10000","01110","00001","00001","11110"],
+"E":["11111","10000","10000","11110","10000","10000","11111"]
+}
+def letter_on(letter,x,y,origin_x,origin_y,pixel):
+    if letter not in font: return False
+    i=(x-origin_x)//pixel
+    j=(y-origin_y)//pixel
+    return 0<=i<5 and 0<=j<7 and font[letter][j][i]=="1"
+
+scale=32
+word_w=(len(LABEL)*6-1)*scale
+word_x=(SIZE-word_w)//2
+big_scale=67
+big_x=(SIZE-5*big_scale)//2
+buf=bytearray()
+for y in range(SIZE):
+    row=bytearray([0])
+    for x in range(SIZE):
+        dx=x-512;dy=y-410
+        glow=max(0.0,1-math.hypot(dx,dy)/620)
+        v=y/SIZE
+        r=int(8+13*v+5*glow)
+        g=int(22+24*v+35*glow)
+        b=int(52+34*v+59*glow)
+        # round translucent brand tile around initial
+        if 240<=x<785 and 112<=y<674:
+            edge=min(x-240,784-x,y-112,673-y)
+            if edge>33 or (edge>=0 and math.hypot(max(34-edge,0),max(34-edge,0))<=35):
+                r=min(255,r+7);g=min(255,g+13);b=min(255,b+29)
+        # large bold initial with spectral colored rim
+        if letter_on("B",x,y,big_x,150,big_scale):
+            r=int(45+50*x/SIZE);g=int(203+37*y/SIZE);b=255
+        # product wordmark
+        for k,ch in enumerate(LABEL):
+            if letter_on(ch,x,y,word_x+k*6*scale,750,scale):
+                r,g,b=236,247,255
+                break
+        row.extend((r,g,b))
+    buf.extend(row)
+def chunk(tag,data):
+    return struct.pack("!I",len(data))+tag+data+struct.pack("!I",zlib.crc32(tag+data)&0xffffffff)
+png=b"\x89PNG\r\n\x1a\n"+chunk(b"IHDR",struct.pack("!2I5B",SIZE,SIZE,8,2,0,0,0))+chunk(b"IDAT",zlib.compress(buf,7))+chunk(b"IEND",b"")
+with open("BachFind/Assets.xcassets/AppIcon.appiconset/AppIcon.png","wb") as f:f.write(png)
+print("Brand icon",LABEL,"bytes",len(png))
