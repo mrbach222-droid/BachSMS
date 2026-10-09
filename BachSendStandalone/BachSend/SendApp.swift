@@ -31,7 +31,12 @@ struct PickerTransfer: Transferable {
     @Published var transferProgress:Double? = nil
     var wifiIP:String? { Self.ip() }
     private var server:LocalFileServer?
-    init(){refresh()}
+    // Files in B Send are disposable copies; never remove originals in Photos/Files.
+    static let autoPurgeSeconds: TimeInterval = 60 * 60
+    init(){
+        cleanTemporaryCopies()
+        refresh()
+    }
     var shareURL:String? {
         guard active,let ip=Self.ip(),let port else{return nil}
         return "http://\(ip):\(port)/?token=\(token)"
@@ -39,11 +44,19 @@ struct PickerTransfer: Transferable {
     static var receivedDir:URL {
         let folder=FileManager.default.urls(for:.documentDirectory,in:.userDomainMask)[0].appendingPathComponent("BachSend/Received",isDirectory:true)
         try? FileManager.default.createDirectory(at:folder,withIntermediateDirectories:true)
+        var noBackup = folder
+        var values = URLResourceValues()
+        values.isExcludedFromBackup = true
+        try? noBackup.setResourceValues(values)
+        return folder
+    }
+    private static var selectedDir: URL {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("BachSend-Selected",isDirectory:true)
+        try? FileManager.default.createDirectory(at:folder,withIntermediateDirectories:true)
         return folder
     }
     func add(_ urls:[URL]){
-        let folder=FileManager.default.temporaryDirectory.appendingPathComponent("BachSend-Selected",isDirectory:true)
-        try? FileManager.default.createDirectory(at:folder,withIntermediateDirectories:true)
+        let folder=Self.selectedDir
         var added=0
         for url in urls{
             let access=url.startAccessingSecurityScopedResource()
@@ -99,6 +112,7 @@ struct PickerTransfer: Transferable {
         message="Đã ngừng chia sẻ."
     }
     func refresh(){
+        purgeExpiredIfIdle()
         let files=(try? FileManager.default.contentsOfDirectory(at:Self.receivedDir,includingPropertiesForKeys:[.fileSizeKey])) ?? []
         incoming=files.filter{!$0.lastPathComponent.hasSuffix(".part")}.map{url in
             let size=(try? url.resourceValues(forKeys:[.fileSizeKey]).fileSize).map(Int64.init) ?? 0
@@ -108,6 +122,54 @@ struct PickerTransfer: Transferable {
         }.sorted{$0.url.lastPathComponent>$1.url.lastPathComponent}
     }
     func delete(_ f:SharedTransferFile){try? FileManager.default.removeItem(at:f.url);refresh()}
+
+    // User-initiated one-tap cleanup. Stops LAN server first so files aren't open.
+    func clearAllManagedFiles() {
+        stop()
+        for file in outgoing { try? FileManager.default.removeItem(at:file.url) }
+        outgoing.removeAll()
+        server?.update(outgoing)
+        for dir in [Self.receivedDir, Self.selectedDir] {
+            let files = (try? FileManager.default.contentsOfDirectory(
+                at: dir, includingPropertiesForKeys: nil)) ?? []
+            for file in files { try? FileManager.default.removeItem(at:file) }
+        }
+        incoming.removeAll()
+        message = "Đã xóa toàn bộ bản sao do B Send quản lý. File gốc vẫn an toàn."
+    }
+
+    // B Send never backs up transfer copies to iCloud. Default TTL: 60 minutes.
+    // This is cleanup on app activity, NOT an iOS background scheduler.
+    func purgeExpiredIfIdle(onlineBusy: Bool = false) {
+        guard !active && !onlineBusy else { return }
+        cleanTemporaryCopies()
+        let received = (try? FileManager.default.contentsOfDirectory(
+            at: Self.receivedDir, includingPropertiesForKeys: [.contentModificationDateKey])) ?? []
+        let now = Date()
+        for url in received {
+            let time = (try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate)
+                ?? .distantPast
+            if now.timeIntervalSince(time) > Self.autoPurgeSeconds {
+                try? FileManager.default.removeItem(at: url)
+            }
+        }
+    }
+
+    private func cleanTemporaryCopies() {
+        let directory = Self.selectedDir
+        let files = (try? FileManager.default.contentsOfDirectory(
+            at: directory, includingPropertiesForKeys: [.contentModificationDateKey])) ?? []
+        let now = Date()
+        let selected = Set(outgoing.map { $0.url.standardizedFileURL })
+        for url in files {
+            guard !selected.contains(url.standardizedFileURL) else { continue }
+            let time = (try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate)
+                ?? .distantPast
+            if now.timeIntervalSince(time) > Self.autoPurgeSeconds {
+                try? FileManager.default.removeItem(at: url)
+            }
+        }
+    }
     private static func ip()->String?{
         var start:UnsafeMutablePointer<ifaddrs>?
         guard getifaddrs(&start)==0,let first=start else{return nil}
