@@ -109,7 +109,6 @@ final class BSendOnlineModel: ObservableObject {
         pingTask = nil
         socket?.cancel(with: .normalClosure, reason: nil)
         socket = nil
-        ownerURL = nil
         cleanupIncoming()
         connecting = false
         connected = false
@@ -163,6 +162,7 @@ final class BSendOnlineModel: ObservableObject {
         pingTask = nil
         socket?.cancel(with: .normalClosure, reason: nil)
         socket = nil
+        ownerURL = nil
         cleanupIncoming()
         sharedKey = nil
         shareURL = nil
