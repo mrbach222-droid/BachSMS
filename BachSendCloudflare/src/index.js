@@ -205,7 +205,7 @@ export default {
         }
       });
     if (url.pathname === "/api/health" && request.method === "GET")
-      return result({ status: "ready", version: "0.5.4-large", transport: "wss", oneTap: true, shortCodes: true, largeFiles: true });
+      return result({ status: "ready", version: "0.5.5-turbo", transport: "wss", oneTap: true, shortCodes: true, largeFiles: true });
     if (url.pathname === "/api/session" && request.method === "POST") {
       const room = nonce(16), ownerToken = nonce(32), guestToken = nonce(32);
       const obj = env.SESSIONS.get(env.SESSIONS.idFromName(room));
