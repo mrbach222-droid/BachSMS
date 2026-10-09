@@ -305,7 +305,7 @@ export default {
             "script-src 'unsafe-inline';style-src 'unsafe-inline';connect-src 'self' wss:;img-src 'self' data: blob:;media-src blob:"}
       });
     }
-    const device = url.pathname.match(/^\\/d\\/([a-f0-9]{32})$/);
+    const device = url.pathname.match(/^\/d\/([a-f0-9]{32})$/);
     if(device && request.method==="GET"){
       return new Response(browserPage(""), {
         headers: {"content-type":"text/html;charset=utf-8","cache-control":"no-store",
