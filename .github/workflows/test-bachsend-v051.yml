@@ -1,0 +1,25 @@
+name: Validate B Send v0.5.1 PC Web Resume
+on:
+  push:
+    branches: [bachsend-v051-media-background-fix]
+    paths:
+      - 'BachSendCloudflare/**'
+      - '.github/workflows/test-bachsend-v051.yml'
+  workflow_dispatch:
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: BachSendCloudflare
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Validate PC browser JS syntax and encryption features
+        run: npm test
+      - name: Inspect Cloudflare Worker config without deploying
+        run: |
+          npm install --no-audit --no-fund
+          npx wrangler deploy --dry-run --outdir ./dist
