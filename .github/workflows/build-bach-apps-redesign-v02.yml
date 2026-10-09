@@ -1,0 +1,42 @@
+name: Build B Find and B Send v0.2
+on:
+  push:
+    branches:
+      - bach-apps-redesign-v02
+  workflow_dispatch:
+
+jobs:
+  package:
+    strategy:
+      fail-fast: false
+      matrix:
+        app: [BachFind, BachSend]
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install XcodeGen and create app icon
+        working-directory: ${{ matrix.app }}Standalone
+        run: |
+          brew install xcodegen
+          python3 generate_icon.py
+          xcodegen generate
+      - name: Compile native iOS application
+        working-directory: ${{ matrix.app }}Standalone
+        run: |
+          xcodebuild -project ${{ matrix.app }}.xcodeproj -scheme ${{ matrix.app }} -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath build CODE_SIGNING_ALLOWED=NO build
+      - name: Package unsigned IPA and verify
+        working-directory: ${{ matrix.app }}Standalone
+        run: |
+          mkdir -p Payload
+          cp -R build/Build/Products/Release-iphoneos/${{ matrix.app }}.app Payload/
+          test -f Payload/${{ matrix.app }}.app/${{ matrix.app }}
+          test -f Payload/${{ matrix.app }}.app/Info.plist
+          /usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" Payload/${{ matrix.app }}.app/Info.plist
+          /usr/libexec/PlistBuddy -c "Print :UILaunchScreen" Payload/${{ matrix.app }}.app/Info.plist || echo "Warning: UILaunchScreen missing"
+          zip -qry ${{ matrix.app }}-v0.2-fullscreen-unsigned.ipa Payload
+          unzip -t ${{ matrix.app }}-v0.2-fullscreen-unsigned.ipa | tail -n 2
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.app }}-v0.2-fullscreen-unsigned
+          path: ${{ matrix.app }}Standalone/${{ matrix.app }}-v0.2-fullscreen-unsigned.ipa
+          retention-days: 30
