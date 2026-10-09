@@ -72,4 +72,16 @@ assert(page.includes("clearButton.onclick=clearOutgoing") &&
 assert(!page.includes('reason:"select-directory"'),
        "Safari receiving must not reject >128 MB files demanding a directory picker");
 assert(page.includes('revokePreviewURLs()'),"Preview URL cleanup missing");
-console.log("PASS B Send v0.6.3 mobile Safari receive 148MB, progress/download, PC optional streaming and private auto-connect");
+assert(page.includes("class BSendSHA256"),"Pure JS SHA-256 implementation must be embedded into browser");
+assert(!page.includes("BSEND_SHA256_IMPL_PLACEHOLDER"),"No uncompiled SHA-256 source marker");
+assert(page.includes('type:"file-ready"') && page.includes("fileReady.set("),
+       "Receiver must advertise offsets and sender must listen for checkpoint");
+assert(page.includes("incoming.expectedSHA===expectedSHA") && page.includes("incoming.got"),
+       "Resume only identical file id/size/digest and in-room context");
+assert(page.includes('reason:"sha256-mismatch"') && page.includes("receivedSHA"),
+       "Hash mismatch must reject bytes and never expose the file");
+assert(page.includes("pendingOutgoingFiles") && page.includes("resumeQueuedBrowserUpload"),
+       "Browser sender must retry its queued file after reconnect");
+assert(page.includes("updateIncomingView(incoming)") && page.includes('a.textContent="⬇ Tải xuống"'),
+       "Safari direct receive must remain available");
+console.log("PASS B Send v0.6.4 Smart Resume + SHA-256, Safari receive, Personal Quick Connect and Turbo");
