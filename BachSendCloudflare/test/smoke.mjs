@@ -49,11 +49,27 @@ assert(page.includes("showDirectoryPicker"),"Streaming file-save directory picke
 assert(page.includes("createWritable"),"Browser must write received data to disk");
 assert(page.includes("file-progress"),"Bounded chunk-ACK protocol missing");
 assert(page.includes("PROGRESS_WINDOW=16"),"Window backpressure missing");
-assert(page.includes("IN_MEMORY_FALLBACK"),"RAM guard missing");
+assert(page.includes("RECEIVE_MEMORY_LIMIT") && page.includes("mobileBrowser?384:512"),
+       "Mobile Safari must accept ~148 MB while bounding in-browser memory");
 assert(page.includes('id="speedMode"'),"Turbo mode selector missing");
 assert(page.includes('targetWindow'),"Adaptive sender window missing");
 assert(page.includes('MB/s'),"Realtime throughput display missing");
 assert(page.includes('id="clear"') && page.includes('id="clearReceived"'),"One-tap cleanup controls missing");
 assert(page.includes('15*60*1000'),"Browser auto-purge missing");
+assert(page.includes('id="incomingRow"') && page.includes("updateIncomingView(incoming)"),
+       "Receiver must show incoming progress automatically");
+assert(page.includes('id="desktopFolder"') && page.includes("canDirectorySave"),
+       "Directory chooser should be optional and hidden on mobile browsers");
+assert(page.includes('id="folder"') && page.includes('id="clearReceived"'),
+       "Optional desktop streaming and received cleanup must remain available");
+assert(page.includes('Lưu vào Tệp / Chia sẻ') && page.includes('a.textContent="⬇ Tải xuống"'),
+       "Received file must have direct download and mobile share/save controls");
+assert(page.includes("previewURLs=new Set(),receivedURLs=new Set()"),
+       "Received download URLs should not be revoked by outgoing file preview changes");
+assert(page.includes("clearButton.onclick=clearOutgoing") &&
+       page.includes("clearReceived.onclick=clearOnlyReceived"),
+       "Clear-send and clear-received operations must not affect the other list");
+assert(!page.includes('reason:"select-directory"'),
+       "Safari receiving must not reject >128 MB files demanding a directory picker");
 assert(page.includes('revokePreviewURLs()'),"Preview URL cleanup missing");
-console.log("PASS B Send v0.6.2 preferred-PC auto-connect, IndexedDB trust keys, challenge proof, hidden link, Turbo");
+console.log("PASS B Send v0.6.3 mobile Safari receive 148MB, progress/download, PC optional streaming and private auto-connect");
