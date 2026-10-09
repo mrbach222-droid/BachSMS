@@ -58,6 +58,12 @@ final class BSendOnlineModel: ObservableObject {
     private var incomingExpected: Int64 = 0
     private var incomingReceived: Int64 = 0
     private var incomingChunks = 0
+    private var incomingSHA256: String?
+    private var readyOffset: Int64?
+    private var readyID: String?
+    private var readySHA: String?
+    private var queuedOutgoing: [SharedTransferFile] = []
+    private var outgoingTransferIDs: [UUID: String] = [:]
     private var pendingProgressId: String?
     private var progressAcknowledged: Int64 = 0
     private var remoteCancelledTransfer = false
@@ -286,7 +292,8 @@ final class BSendOnlineModel: ObservableObject {
         pingTask = nil
         socket?.cancel(with: .normalClosure, reason: nil)
         socket = nil
-        cleanupIncoming()
+        // Keep the partial .part file in this encrypted room for Smart Resume.
+        // It is discarded only when the session is explicitly stopped/expired.
         busy = false
         connecting = true
         connected = false
@@ -346,6 +353,11 @@ final class BSendOnlineModel: ObservableObject {
         socket = nil
         ownerURL = nil
         cleanupIncoming()
+        queuedOutgoing.removeAll()
+        outgoingTransferIDs.removeAll()
+        readyID = nil
+        readyOffset = nil
+        readySHA = nil
         sharedKey = nil
         pendingPCPublicKey = nil
         trustedChallenge = nil
@@ -484,12 +496,14 @@ final class BSendOnlineModel: ObservableObject {
             pairingApproved = true
             pendingVerification = false
             message = "PC cá nhân đã tự kết nối an toàn. Không cần xác nhận lại."
+            autoResumeOutgoingIfPossible()
         case "resume-probe":
             guard pairingApproved, sharedKey != nil,
                   let check = json["nonce"] as? String,
                   check.count >= 12, check.count <= 80 else { return }
             try await sendControl(["type": "resume-ack", "nonce": check])
             message = "Đã khôi phục phiên ghép nối an toàn với PC."
+            autoResumeOutgoingIfPossible()
         case "file-start":
             guard incomingFile == nil,
                   let id = json["id"] as? String,
@@ -497,6 +511,25 @@ final class BSendOnlineModel: ObservableObject {
                   let length = json["size"] as? NSNumber else { return }
             let size = length.int64Value
             guard size >= 0 else { return }
+            let digest = (json["sha256"] as? String)?.lowercased()
+            if let digest, !Self.validDigest(digest) {
+                try? await sendControl(["type":"file-cancel","id":id,"reason":"bad-sha256"])
+                return
+            }
+            // Resume only if this is precisely the SAME id, name, size and
+            // declared digest within the SAME encrypted transfer room.
+            if incomingFile != nil {
+                if id == incomingID, size == incomingExpected,
+                   Self.cleanName(name) == incomingName,
+                   digest == incomingSHA256 {
+                    try await sendControl([
+                        "type":"file-ready","id":id,"offset":incomingReceived
+                    ])
+                } else {
+                    try? await sendControl(["type":"file-cancel","id":id,"reason":"receiver-busy"])
+                }
+                return
+            }
             // Preflight free disk space before accepting a file. This is not a
             // configured transfer limit; it protects the user's device.
             let disk = (try? FileManager.default.attributesOfFileSystem(
@@ -521,24 +554,46 @@ final class BSendOnlineModel: ObservableObject {
                 incomingExpected = size
                 incomingReceived = 0
                 incomingChunks = 0
+                incomingSHA256 = digest
                 progress = 0
                 progressTitle = "PC → iPhone: " + safeName
+                try await sendControl(["type":"file-ready","id":id,"offset":0])
             } catch {
                 try? FileManager.default.removeItem(at: location)
                 message = "Lỗi bộ nhớ iPhone: \(error.localizedDescription)"
             }
         case "file-end":
-            guard incomingFile != nil,
-                  let id = json["id"] as? String,
-                  id == incomingID,
-                  incomingExpected == incomingReceived else {
-                cleanupIncoming()
-                message = "File chưa đủ dữ liệu hoặc sai mã phiên; đã hủy."
+            guard let id = json["id"] as? String,
+                  id == incomingID, incomingFile != nil else { return }
+            guard incomingExpected == incomingReceived,
+                  let temporary = incomingTemporary else {
+                message = "File chưa nhận đủ. Có thể truyền tiếp khi kết nối lại."
+                try? await sendControl(["type":"file-cancel","id":id,"reason":"incomplete"])
                 return
             }
-            guard let temporary = incomingTemporary else { return }
-            try incomingFile?.close()
-            incomingFile = nil
+            // Sender's SHA is inside the encrypted control envelope. Verify
+            // every received byte before exposing the file or sending ACK.
+            let finalDigest = (json["sha256"] as? String)?.lowercased()
+            if let expected = incomingSHA256 {
+                guard finalDigest == expected else {
+                    cleanupIncoming()
+                    try? await sendControl(["type":"file-cancel","id":id,"reason":"hash-metadata"])
+                    message = "SHA-256 không khớp; file đã bị hủy."
+                    return
+                }
+                try incomingFile?.close()
+                incomingFile = nil
+                let computed = try Self.fileSHA256(temporary)
+                guard computed == expected else {
+                    cleanupIncoming()
+                    try? await sendControl(["type":"file-cancel","id":id,"reason":"sha256-mismatch"])
+                    message = "SHA-256 kiểm tra thất bại. Đã xóa file sai."
+                    return
+                }
+            } else {
+                try incomingFile?.close()
+                incomingFile = nil
+            }
             let final = temporary.deletingPathExtension()
             do {
                 try FileManager.default.moveItem(at: temporary, to: final)
@@ -546,13 +601,22 @@ final class BSendOnlineModel: ObservableObject {
                 cleanupIncoming()
                 progress = 1
                 progressTitle = "Đã nhận: " + name
-                message = "Đã lưu file từ PC: " + name
+                message = incomingSHA256 == nil
+                    ? "Đã nhận file từ PC cũ (chưa kiểm tra SHA-256): " + name
+                    : "✓ SHA-256 trùng khớp. Đã nhận: " + name
+                let checked = incomingSHA256 != nil
                 didReceive?()
-                try await sendControl(["type": "file-ack", "id": id])
+                try await sendControl(["type": "file-ack", "id": id, "verified": checked])
             } catch {
                 cleanupIncoming()
                 message = "Không thể hoàn thành file nhận: \(error.localizedDescription)"
             }
+        case "file-ready":
+            guard let id = json["id"] as? String,
+                  let offset = json["offset"] as? NSNumber,
+                  offset.int64Value >= 0 else { return }
+            readyID = id
+            readyOffset = offset.int64Value
         case "file-progress":
             guard let id = json["id"] as? String,
                   let received = json["received"] as? NSNumber,
@@ -809,6 +873,21 @@ final class BSendOnlineModel: ObservableObject {
         incomingExpected = 0
         incomingReceived = 0
         incomingChunks = 0
+        incomingSHA256 = nil
+    }
+
+    private static func validDigest(_ digest: String) -> Bool {
+        digest.count == 64 && digest.allSatisfy { $0.isASCII && $0.isHexDigit }
+    }
+
+    private static func fileSHA256(_ url: URL) throws -> String {
+        let reader = try FileHandle(forReadingFrom: url)
+        defer { try? reader.close() }
+        var hash = SHA256()
+        while let chunk = try reader.read(upToCount: 1024 * 1024), !chunk.isEmpty {
+            hash.update(data: chunk)
+        }
+        return hash.finalize().map { String(format: "%02x", $0) }.joined()
     }
 
     private static func cleanName(_ input: String) -> String {
