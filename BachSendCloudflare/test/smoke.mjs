@@ -30,4 +30,10 @@ assert(page.includes("createWritable"),"Browser must write received data to disk
 assert(page.includes("file-progress"),"Bounded chunk-ACK protocol missing");
 assert(page.includes("PROGRESS_WINDOW=16"),"Window backpressure missing");
 assert(page.includes("IN_MEMORY_FALLBACK"),"RAM guard missing");
-console.log("PASS B Send v0.5.4 web: no 50MB cap, streamed PC saves, chunk ACK, AES-GCM, syntax");
+assert(page.includes('id="speedMode"'),"Turbo mode selector missing");
+assert(page.includes('targetWindow'),"Adaptive sender window missing");
+assert(page.includes('MB/s'),"Realtime throughput display missing");
+assert(page.includes('id="clear"') && page.includes('id="clearReceived"'),"One-tap cleanup controls missing");
+assert(page.includes('15*60*1000'),"Browser auto-purge missing");
+assert(page.includes('revokePreviewURLs()'),"Preview URL cleanup missing");
+console.log("PASS B Send v0.5.5 Turbo UI, adaptive flow-control, AES-GCM, 15min preview cleanup and syntax");
