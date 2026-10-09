@@ -1,0 +1,39 @@
+name: Live B Send v0.6 Private Device Isolation
+on:
+  push:
+    branches: [bachsend-v060-private-device]
+    paths:
+      - '.github/workflows/test-bachsend-private-live-v060.yml'
+  workflow_dispatch:
+jobs:
+  live:
+    runs-on: ubuntu-latest
+    timeout-minutes: 9
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Wait for v0.6 production Cloudflare deployment
+        run: |
+          node --input-type=module <<'NODE'
+          const url="https://bachsend-relay.mrbach222.workers.dev/api/health";
+          let ok=false;
+          for(let i=0;i<65;i++){
+            try{
+              const response=await fetch(url,{cache:"no-store"});
+              const health=await response.json();
+              if(health.version==="0.6.0-private-device"){
+                console.log("PASS production worker",health.version);
+                ok=true;break;
+              }
+              console.log("Waiting for Cloudflare deploy:",health.version);
+            }catch(e){console.log("Waiting for Cloudflare:",e.message)}
+            await new Promise(done=>setTimeout(done,4000));
+          }
+          if(!ok)process.exit(1);
+          NODE
+      - name: Verify two simultaneous iPhones and no cross-room packets on real Cloudflare
+        env:
+          BSEND_BASE: https://bachsend-relay.mrbach222.workers.dev
+        run: node BachSendCloudflare/test/multi-device-v060.mjs
