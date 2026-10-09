@@ -9,7 +9,7 @@ const signaled=[];
 const response=await fetch(base+"/api/session",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({
  deviceId,deviceOwnerSecret,deviceLinkSecret,deviceName:"Test Safari Private"
 })});
-assert.equal(response.status,201,"Could not create private iPhone session: "+await response.text());
+if(response.status!==201)throw Error("Could not create private iPhone session: "+await response.text());
 const info=await response.json();
 const ownerURL=base.startsWith("http:")
  ?info.ownerWebSocketURL.replace(/^wss:/,"ws:"):info.ownerWebSocketURL;
