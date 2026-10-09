@@ -4,7 +4,7 @@ on:
     branches: [bachsend-v060-private-device]
     paths:
       - 'BachSendStandalone/**'
-      - '.github/workflows/build-bachsend-v056.yml'
+      - '.github/workflows/build-bachsend-v060.yml'
   workflow_dispatch:
 jobs:
   build:
