@@ -35,3 +35,4 @@ jobs:
             sleep 2
           done
           node test/multi-device-v060.mjs || { cat /tmp/bsend-worker-v060.log; exit 1; }
+          node test/smart-resume-v064.mjs || { cat /tmp/bsend-worker-v060.log; exit 1; }
