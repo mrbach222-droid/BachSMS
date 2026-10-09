@@ -28,6 +28,14 @@ assert(!page.includes('id="privateLink" type="text"'),
 assert(page.includes("localStorage") && page.includes("validPrivateLink"),
        "PC must persist authorized devices only");
 assert(page.includes("history.replaceState"),"Secret fragment must be removed from the address bar");
+assert(page.includes("personalKeyPair(currentDeviceId)") && page.includes("indexedDB"),
+       "Personal ECDH private key must persist inside browser-only IndexedDB");
+assert(page.includes('"trust-proof"') && page.includes('"trust-probe"'),
+       "Trusted PC must cryptographically respond to a fresh iPhone challenge");
+assert(page.includes("connectDevice(chosen)") && page.includes("preferredDevice()"),
+       "Preferred personal iPhone should auto-connect when browser home opens");
+assert(page.includes("setInterval") && page.includes("20000"),
+       "Auto-retry offline iPhones without copying link again");
 assert(page.includes("Chấp nhận"),"Phone approval message missing");
 assert(page.includes('id="received"'),"Received file list missing");
 assert(page.includes('className="thumb"'),"Preview thumbnails missing");
@@ -48,4 +56,4 @@ assert(page.includes('MB/s'),"Realtime throughput display missing");
 assert(page.includes('id="clear"') && page.includes('id="clearReceived"'),"One-tap cleanup controls missing");
 assert(page.includes('15*60*1000'),"Browser auto-purge missing");
 assert(page.includes('revokePreviewURLs()'),"Preview URL cleanup missing");
-console.log("PASS B Send v0.6.1 private multi-device hidden link, masked pairing, Turbo and cleanup");
+console.log("PASS B Send v0.6.2 preferred-PC auto-connect, IndexedDB trust keys, challenge proof, hidden link, Turbo");
