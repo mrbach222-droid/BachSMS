@@ -36,7 +36,7 @@ struct PickerTransfer: Transferable {
         guard active,let ip=Self.ip(),let port else{return nil}
         return "http://\(ip):\(port)/?token=\(token)"
     }
-    private static var receivedDir:URL {
+    static var receivedDir:URL {
         let folder=FileManager.default.urls(for:.documentDirectory,in:.userDomainMask)[0].appendingPathComponent("BachSend/Received",isDirectory:true)
         try? FileManager.default.createDirectory(at:folder,withIntermediateDirectories:true)
         return folder
