@@ -25,6 +25,7 @@ final class BSendOnlineModel: ObservableObject {
     @Published private(set) var expiry: Date?
 
     private var socket: URLSessionWebSocketTask?
+    private var ownerURL: URL?
     private var receivingTask: Task<Void, Never>?
     private var uploadTask: Task<Void, Never>?
     private var pingTask: Task<Void, Never>?
@@ -83,21 +84,8 @@ final class BSendOnlineModel: ObservableObject {
                 self.sharedKey = key
                 self.shareURL = session.guestURL + "." + hex
                 self.expiry = Date(timeIntervalSince1970: TimeInterval(session.expiresAt) / 1000)
-                let ws = URLSession.shared.webSocketTask(with: owner)
-                self.socket = ws
-                ws.resume()
-                self.message = "Đang kết nối WebSocket bảo mật..."
-                self.receivingTask = Task { [weak self] in
-                    await self?.listen(marker: marker)
-                }
-                self.pingTask = Task { [weak self] in
-                    guard let self else { return }
-                    while !Task.isCancelled && marker == self.sessionMarker {
-                        try? await Task.sleep(for: .seconds(22))
-                        guard !Task.isCancelled, marker == self.sessionMarker else { break }
-                        ws.sendPing { _ in }
-                    }
-                }
+                self.ownerURL = owner
+                self.connectSocket(owner, marker: marker)
             } catch {
                 guard marker == self.sessionMarker else { return }
                 self.stop(clearStatus: false)
@@ -107,6 +95,63 @@ final class BSendOnlineModel: ObservableObject {
     }
 
     func stop() { stop(clearStatus: true) }
+
+    // Keep the pairing URL and key while iOS switches apps. A dormant iOS app
+    // cannot reliably keep a live socket; reconnect when it becomes foreground.
+    func pauseForBackground() {
+        guard ownerURL != nil, shareURL != nil else { return }
+        sessionMarker = UUID()
+        uploadTask?.cancel()
+        uploadTask = nil
+        receivingTask?.cancel()
+        receivingTask = nil
+        pingTask?.cancel()
+        pingTask = nil
+        socket?.cancel(with: .normalClosure, reason: nil)
+        socket = nil
+        ownerURL = nil
+        cleanupIncoming()
+        connecting = false
+        connected = false
+        peerOnline = false
+        busy = false
+        progress = 0
+        progressTitle = ""
+        awaitingReceipt = nil
+        acknowledgedReceipt = nil
+        message = "Đã tạm dừng trong nền. Quay lại B Send để kết nối tiếp."
+    }
+
+    func resumeAfterBackground() {
+        guard let ownerURL, shareURL != nil, !connected, !connecting else { return }
+        if let expiry, Date() >= expiry {
+            stop(clearStatus: false)
+            message = "Link Online đã hết hạn. Tạo phiên mới."
+            return
+        }
+        connecting = true
+        message = "Đang kết nối lại phiên Online..."
+        connectSocket(ownerURL, marker: sessionMarker)
+    }
+
+    private func connectSocket(_ owner: URL, marker: UUID) {
+        guard marker == sessionMarker else { return }
+        let ws = URLSession.shared.webSocketTask(with: owner)
+        socket = ws
+        ws.resume()
+        message = "Đang kết nối WebSocket bảo mật..."
+        receivingTask = Task { [weak self] in
+            await self?.listen(marker: marker)
+        }
+        pingTask = Task { [weak self] in
+            guard let self else { return }
+            while !Task.isCancelled && marker == self.sessionMarker {
+                try? await Task.sleep(for: .seconds(22))
+                guard !Task.isCancelled, marker == self.sessionMarker else { break }
+                ws.sendPing { _ in }
+            }
+        }
+    }
 
     private func stop(clearStatus: Bool) {
         sessionMarker = UUID()
