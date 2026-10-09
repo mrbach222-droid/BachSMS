@@ -283,12 +283,13 @@ struct SendV2Home: View {
                         Label(online.canClose ? "Dừng chia sẻ Online" : "Bật chia sẻ Online",
                               systemImage: online.canClose ? "stop.fill" : "link.badge.plus")
                             .font(.system(size: 12, weight: .bold))
-                            .frame(maxWidth: .infinity).frame(height: 44)
+                            .frame(maxWidth: .infinity).frame(height: 52)
+                        .foregroundStyle(online.canClose ? .white : Color(red: 0.01, green: 0.10, blue: 0.19))
+                        .background(online.canClose ? Color.red.opacity(0.7) : SendStyle.accent,
+                                    in: RoundedRectangle(cornerRadius: 12))
+                        .contentShape(RoundedRectangle(cornerRadius: 12))
                     }
                     .buttonStyle(.plain)
-                    .foregroundStyle(online.canClose ? .white : Color(red: 0.01, green: 0.10, blue: 0.19))
-                    .background(online.canClose ? Color.red.opacity(0.7) : SendStyle.accent,
-                                in: RoundedRectangle(cornerRadius: 12))
                     Text(online.message)
                         .font(.system(size: 11))
                         .foregroundStyle(SendStyle.secondary)
@@ -342,7 +343,7 @@ struct SendV2Home: View {
                     .foregroundStyle(SendStyle.secondary)
                     .fixedSize(horizontal: false, vertical: true)
                 if store.outgoing.isEmpty {
-                    Label("Chưa chọn file. Bản thử nghiệm giới hạn 50 MB/file.",
+                    Label("Chưa chọn file. Truyền theo từng phần, phụ thuộc thời gian phiên và dung lượng thiết bị.",
                           systemImage: "doc.badge.plus")
                         .font(.system(size: 11))
                         .foregroundStyle(SendStyle.secondary)
@@ -375,12 +376,13 @@ struct SendV2Home: View {
                           systemImage: "paperplane.fill")
                         .font(.system(size: 12, weight: .bold))
                         .frame(maxWidth: .infinity).frame(height: 43)
+                        .foregroundStyle(Color(red: 0.01, green: 0.1, blue: 0.19))
+                        .background(SendStyle.accent.opacity(online.maySend && !store.outgoing.isEmpty ? 1 : 0.4),
+                                    in: RoundedRectangle(cornerRadius: 12))
+                        .contentShape(RoundedRectangle(cornerRadius: 12))
                 }
                 .buttonStyle(.plain)
                 .disabled(!online.maySend || store.outgoing.isEmpty)
-                .foregroundStyle(Color(red: 0.01, green: 0.1, blue: 0.19))
-                .background(SendStyle.accent.opacity(online.maySend && !store.outgoing.isEmpty ? 1 : 0.4),
-                            in: RoundedRectangle(cornerRadius: 12))
 
                 Text("Bản thử nghiệm chưa qua kiểm toán bảo mật. Chỉ thử file không nhạy cảm; không gửi dữ liệu khách hàng hoặc tài liệu công ty.")
                     .font(.system(size: 10))
@@ -621,11 +623,12 @@ struct SendV2Home: View {
                       systemImage: store.active ? "stop.fill" : "wifi")
                     .font(.system(size: 12, weight: .bold))
                     .frame(maxWidth: .infinity).frame(height: 43)
+                .foregroundStyle(store.active ? .white : Color(red: 0.01, green: 0.11, blue: 0.20))
+                .background(store.active ? Color.red.opacity(0.65) : SendStyle.accent,
+                            in: RoundedRectangle(cornerRadius: 13))
+                .contentShape(RoundedRectangle(cornerRadius: 13))
             }
             .buttonStyle(.plain)
-            .foregroundStyle(store.active ? .white : Color(red: 0.01, green: 0.11, blue: 0.20))
-            .background(store.active ? Color.red.opacity(0.65) : SendStyle.accent,
-                        in: RoundedRectangle(cornerRadius: 13))
         }
     }
     private func icon(for url: URL) -> String {
@@ -724,7 +727,7 @@ struct SendV2Home: View {
                     Text("File tối đa 1 GiB. Giữ B Send ở màn hình trước trong lúc truyền. Một số Wi-Fi công cộng chặn liên lạc giữa thiết bị.")
                         .font(.system(size: 11)).foregroundStyle(SendStyle.secondary)
                 }.sendGlass()
-                Text("B Send · v0.5.3 Native Picker · Bách App")
+                Text("B Send · v0.5.4 Large Transfer · Bách App")
                     .font(.system(size: 10)).foregroundStyle(SendStyle.secondary.opacity(0.75))
             }.padding(.horizontal, 19).padding(.top, 10)
         }
