@@ -6,10 +6,11 @@ import Security
 // stored in the iOS Keychain, not UserDefaults, iCloud, or a file transfer.
 struct BSendDeviceIdentity: Codable {
     let id: String             // 128-bit random ID (not a person's name)
-    let secret: String         // 256-bit bearer secret; never put in a query string
+    let ownerSecret: String    // 256-bit owner-only Keychain key. Never shared with PC.
+    let linkSecret: String     // 256-bit capability for the PC's private link.
 
     var privateLink: String {
-        "https://bachsend-relay.mrbach222.workers.dev/d/\(id)#\(secret)"
+        "https://bachsend-relay.mrbach222.workers.dev/d/\(id)#\(linkSecret)"
     }
 
     static func loadOrCreate() throws -> BSendDeviceIdentity {
@@ -28,9 +29,11 @@ struct BSendDeviceIdentity: Codable {
         if status == errSecSuccess {
             guard let data = result as? Data,
                   let identity = try? JSONDecoder().decode(Self.self, from: data),
-                  identity.id.count == 32, identity.secret.count == 64,
+                  identity.id.count == 32, identity.ownerSecret.count == 64,
+                  identity.linkSecret.count == 64,
                   identity.id.allSatisfy({ $0.isHexDigit }),
-                  identity.secret.allSatisfy({ $0.isHexDigit }) else {
+                  identity.ownerSecret.allSatisfy({ $0.isHexDigit }),
+                  identity.linkSecret.allSatisfy({ $0.isHexDigit }) else {
                 throw NSError(domain: "B Send Keychain", code: 1,
                               userInfo: [NSLocalizedDescriptionKey: "Danh tính thiết bị trong Keychain không hợp lệ."])
             }
@@ -42,11 +45,12 @@ struct BSendDeviceIdentity: Codable {
         }
 
         let id = UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased()
-        let key = SymmetricKey(size: .bits256)
-        let secret = key.withUnsafeBytes { bytes in
-            bytes.map { String(format: "%02x", $0) }.joined()
+        func randomSecret() -> String {
+            SymmetricKey(size: .bits256).withUnsafeBytes {
+                $0.map { String(format: "%02x", $0) }.joined()
+            }
         }
-        let newIdentity = Self(id: id, secret: secret)
+        let newIdentity = Self(id: id, ownerSecret: randomSecret(), linkSecret: randomSecret())
         let data = try JSONEncoder().encode(newIdentity)
         let create: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
