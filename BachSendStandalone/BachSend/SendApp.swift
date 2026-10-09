@@ -27,6 +27,9 @@ struct PickerTransfer: Transferable {
     @Published var port:UInt16?
     @Published var token=""
     @Published var message="Chọn file, sau đó bật chia sẻ."
+    @Published var transferTitle=""
+    @Published var transferProgress:Double? = nil
+    var wifiIP:String? { Self.ip() }
     private var server:LocalFileServer?
     init(){refresh()}
     var shareURL:String? {
@@ -70,19 +73,29 @@ struct PickerTransfer: Transferable {
         let s=LocalFileServer(token:current,files:outgoing,destination:Self.receivedDir,started:{[weak self] port in
             Task{@MainActor[weak self] in
                 guard self?.token==current else{return}
-                self?.port=port;self?.active=true;self?.message="Đang chia sẻ với thiết bị cùng Wi-Fi."
+                self?.port=port;self?.active=true;self?.message="Đã mở phiên LAN + Wi-Fi. PC có thể dùng dây Ethernet cùng router."
             }
         },received:{[weak self] name in
-            Task{@MainActor[weak self] in self?.refresh();self?.message="Đã nhận: \(name)"}
+            Task{@MainActor[weak self] in self?.refresh();self?.message="Đã nhận: \(name)";self?.transferTitle="Đã nhận: \(name)";self?.transferProgress=1}
+        },progress:{[weak self] name,ratio,isUpload in
+            Task{@MainActor[weak self] in
+                guard self?.token == current else{return}
+                self?.transferTitle=(isUpload ? "PC → iPhone: " : "iPhone → PC: ")+name
+                self?.transferProgress=min(1,max(0,ratio))
+            }
         },failed:{[weak self] detail in
             Task{@MainActor[weak self] in self?.message=detail;self?.active=false;self?.port=nil}
         })
         server=s
         s.start()
+        transferTitle=""
+        transferProgress=nil
         message="Đang mở phiên Wi-Fi..."
     }
     func stop(){
         server?.stop();server=nil;active=false;port=nil;token=""
+        transferTitle=""
+        transferProgress=nil
         message="Đã ngừng chia sẻ."
     }
     func refresh(){
