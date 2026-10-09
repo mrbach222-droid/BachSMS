@@ -1,6 +1,7 @@
 import SwiftUI
 import Combine
 import PhotosUI
+import QuickLook
 import UniformTypeIdentifiers
 import UIKit
 
