@@ -13,7 +13,10 @@ struct BSendOnlineSession: Decodable {
 
 @MainActor
 final class BSendOnlineModel: ObservableObject {
-    static let maximumFileSize = 50 * 1024 * 1024
+    // No fixed app-level file size cap: files are transferred in small chunks.
+    // Practical limit: free storage, session expiry, and network reliability.
+    static let chunkSize = 48 * 1024
+    static let progressWindow = 16
     static let relay = "https://bachsend-relay.mrbach222.workers.dev"
 
     @Published private(set) var shareURL: String?
@@ -45,6 +48,9 @@ final class BSendOnlineModel: ObservableObject {
     private var incomingName = ""
     private var incomingExpected: Int64 = 0
     private var incomingReceived: Int64 = 0
+    private var incomingChunks = 0
+    private var pendingProgressId: String?
+    private var progressAcknowledged: Int64 = 0
     private var awaitingReceipt: String?
     private var acknowledgedReceipt: String?
     var didReceive: (() -> Void)?
@@ -268,7 +274,7 @@ final class BSendOnlineModel: ObservableObject {
                 guard marker == sessionMarker else { return }
                 switch frame {
                 case .string(let text): try await handleText(text)
-                case .data(let packet): try handleData(packet)
+                case .data(let packet): try await handleData(packet)
                 @unknown default: break
                 }
             } catch {
@@ -361,8 +367,14 @@ final class BSendOnlineModel: ObservableObject {
                   let name = json["name"] as? String,
                   let length = json["size"] as? NSNumber else { return }
             let size = length.int64Value
-            guard (0...Int64(Self.maximumFileSize)).contains(size) else {
-                message = "PC gửi file vượt giới hạn 50 MB."
+            guard size >= 0 else { return }
+            // Preflight free disk space before accepting a file. This is not a
+            // configured transfer limit; it protects the user's device.
+            let disk = (try? FileManager.default.attributesOfFileSystem(
+                forPath: SendModel.receivedDir.path)[.systemFreeSize] as? NSNumber)?.int64Value ?? 0
+            guard disk > 0 && disk >= size + 8 * 1024 * 1024 else {
+                message = "iPhone không đủ dung lượng trống để nhận file."
+                try? await sendControl(["type": "file-cancel", "id": id, "reason": "disk-full"])
                 return
             }
             let safeName = Self.cleanName(name)
@@ -379,6 +391,7 @@ final class BSendOnlineModel: ObservableObject {
                 incomingName = safeName
                 incomingExpected = size
                 incomingReceived = 0
+                incomingChunks = 0
                 progress = 0
                 progressTitle = "PC → iPhone: " + safeName
             } catch {
@@ -411,6 +424,11 @@ final class BSendOnlineModel: ObservableObject {
                 cleanupIncoming()
                 message = "Không thể hoàn thành file nhận: \(error.localizedDescription)"
             }
+        case "file-progress":
+            guard let id = json["id"] as? String,
+                  let received = json["received"] as? NSNumber,
+                  id == pendingProgressId else { return }
+            progressAcknowledged = max(progressAcknowledged, received.int64Value)
         case "file-ack":
             guard let id = json["id"] as? String else { return }
             acknowledgedReceipt = id
@@ -424,18 +442,21 @@ final class BSendOnlineModel: ObservableObject {
         }
     }
 
-    private func handleData(_ bytes: Data) throws {
+    private func handleData(_ bytes: Data) async throws {
         guard let writer = incomingFile else { return }
         let plain = try open(bytes)
-        guard incomingReceived + Int64(plain.count) <= incomingExpected,
-              incomingReceived + Int64(plain.count) <= Int64(Self.maximumFileSize) else {
+        guard incomingReceived + Int64(plain.count) <= incomingExpected else {
             cleanupIncoming()
             message = "File không khớp dung lượng khai báo."
             return
         }
         try writer.write(contentsOf: plain)
         incomingReceived += Int64(plain.count)
+        incomingChunks += 1
         progress = incomingExpected == 0 ? 1 : Double(incomingReceived) / Double(incomingExpected)
+        if incomingChunks % Self.progressWindow == 0, let id = incomingID {
+            try await sendControl(["type": "file-progress", "id": id, "received": incomingReceived])
+        }
     }
 
     func approvePairing() {
@@ -471,16 +492,16 @@ final class BSendOnlineModel: ObservableObject {
                 for file in files {
                     try Task.checkCancellation()
                     guard marker == self.sessionMarker else { return }
-                    guard file.size <= Int64(Self.maximumFileSize) else {
-                        throw NSError(domain: "BSend", code: 4, userInfo: [
-                            NSLocalizedDescriptionKey: "File \(file.name) vượt 50 MB (giới hạn bản thử nghiệm)."
-                        ])
-                    }
+                    guard file.size >= 0 else { throw NSError(domain: "BSend", code: 4, userInfo: [
+                        NSLocalizedDescriptionKey: "Không xác định được dung lượng file."
+                    ]) }
                     let id = UUID().uuidString.lowercased()
                     self.progressTitle = "iPhone → PC: " + file.name
                     self.progress = 0
                     self.awaitingReceipt = id
                     self.acknowledgedReceipt = nil
+                    self.pendingProgressId = id
+                    self.progressAcknowledged = 0
                     try await self.sendControl([
                         "type": "file-start", "id": id,
                         "name": file.name, "size": file.size
@@ -488,6 +509,7 @@ final class BSendOnlineModel: ObservableObject {
                     let handle = try FileHandle(forReadingFrom: file.url)
                     defer { try? handle.close() }
                     var sent: Int64 = 0
+                    var chunksSent = 0
                     while true {
                         try Task.checkCancellation()
                         guard marker == self.sessionMarker, self.peerOnline else {
@@ -495,10 +517,28 @@ final class BSendOnlineModel: ObservableObject {
                                 NSLocalizedDescriptionKey: "Đã mất kết nối PC."
                             ])
                         }
-                        guard let chunk = try handle.read(upToCount: 48 * 1024), !chunk.isEmpty else { break }
+                        guard let chunk = try handle.read(upToCount: Self.chunkSize), !chunk.isEmpty else { break }
                         try await self.sendBinary(chunk)
                         sent += Int64(chunk.count)
+                        chunksSent += 1
                         self.progress = file.size == 0 ? 1 : Double(sent) / Double(file.size)
+                        // Keep in-flight data bounded to ~768 KiB, even for multi-GB files.
+                        if chunksSent % Self.progressWindow == 0 {
+                            var attempts = 0
+                            while self.progressAcknowledged < sent {
+                                try Task.checkCancellation()
+                                guard self.peerOnline, marker == self.sessionMarker else {
+                                    throw NSError(domain: "BSend", code: 5, userInfo: [
+                                        NSLocalizedDescriptionKey: "Mất kết nối khi chuyển file."
+                                    ])
+                                }
+                                try await Task.sleep(for: .milliseconds(100))
+                                attempts += 1
+                                if attempts > 900 { throw NSError(domain: "BSend", code: 13, userInfo: [
+                                    NSLocalizedDescriptionKey: "PC không xác nhận tiến độ trong 90 giây."
+                                ]) }
+                            }
+                        }
                         await Task.yield()
                     }
                     try await self.sendControl(["type": "file-end", "id": id])
@@ -514,8 +554,9 @@ final class BSendOnlineModel: ObservableObject {
                             NSLocalizedDescriptionKey: "PC chưa xác nhận nhận đủ file trong 120 giây."
                         ])
                     }
-                    self.message = "PC đã nhận file \(file.name), có thể bấm tải xuống."
+                    self.message = "PC đã nhận file \(file.name)."
                     self.awaitingReceipt = nil
+                    self.pendingProgressId = nil
                 }
             } catch {
                 if marker == self.sessionMarker {
@@ -586,6 +627,7 @@ final class BSendOnlineModel: ObservableObject {
         incomingName = ""
         incomingExpected = 0
         incomingReceived = 0
+        incomingChunks = 0
     }
 
     private static func cleanName(_ input: String) -> String {
