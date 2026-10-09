@@ -1,0 +1,13 @@
+import assert from "node:assert/strict";
+import { Script } from "node:vm";
+import browserPage from "../src/page.js";
+const page=browserPage("a".repeat(32));
+assert(page.includes('const room="a'.slice(0,15)), "Room marker should be substituted");
+assert(!page.includes("ROOM_PLACEHOLDER"), "No raw room template");
+const script=page.match(/<script>([\s\S]*?)<\/script>/);
+assert(script,"Expected PC script");
+new Script(script[1],{filename:"client.js"});
+assert(page.includes("Gửi vào iPhone"),"PC sender missing");
+assert(page.includes("Nhận file từ iPhone"),"PC receiver missing");
+assert(page.includes("chưa mã hóa đầu cuối"),"Explicit preview security notice missing");
+console.log("PASS: browser room injection, client syntax, UI and security warning");
