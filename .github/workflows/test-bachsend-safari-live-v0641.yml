@@ -1,0 +1,44 @@
+name: Verify production B Send Safari WebKit hotfix
+on:
+  push:
+    branches: [bachsend-v0641-safari-connect-diagnostics]
+    paths:
+      - '.github/workflows/test-bachsend-safari-live-v0641.yml'
+  workflow_dispatch:
+jobs:
+  safari-live:
+    runs-on: ubuntu-latest
+    timeout-minutes: 14
+    defaults:
+      run:
+        working-directory: BachSendCloudflare
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install WebKit test browser
+        run: |
+          npm install --no-audit --no-fund
+          npm install --no-save playwright@1.58.2
+          npx playwright install --with-deps webkit
+      - name: Wait until updated Safari-safe SHA script is deployed
+        run: |
+          node --input-type=module <<'NODE'
+          let ok=false;
+          for(let i=0;i<55;i++){
+            try{
+              const page=await fetch("https://bachsend-relay.mrbach222.workers.dev/",{cache:"no-store"}).then(r=>r.text());
+              if(page.includes("const BSendSHA256 = (class BSendSHA256")&&!page.includes("__name(")){
+                ok=true;console.log("PASS Cloudflare deployed Safari-safe SHA class");break;
+              }
+              console.log("Waiting for production hotfix");
+            }catch(e){console.log(e.message)}
+            await new Promise(r=>setTimeout(r,3000));
+          }
+          if(!ok)process.exit(1);
+          NODE
+      - name: Real WebKit HTTPS pairing and saved-iPhone reconnect
+        env:
+          BSEND_BASE: https://bachsend-relay.mrbach222.workers.dev
+        run: node test/safari-connect-v0641.mjs
