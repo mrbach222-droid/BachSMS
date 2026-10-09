@@ -1,0 +1,25 @@
+name: Validate B Send v0.5.5 Turbo Web
+on:
+  push:
+    branches: [bachsend-v055-turbo-cleanup]
+    paths:
+      - 'BachSendCloudflare/**'
+      - '.github/workflows/test-bachsend-v055.yml'
+  workflow_dispatch:
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: BachSendCloudflare
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Verify Turbo UI, flow control and privacy controls
+        run: npm test
+      - name: Dry-run Wrangler build
+        run: |
+          npm install --no-audit --no-fund
+          npx wrangler deploy --dry-run --outdir ./dist
