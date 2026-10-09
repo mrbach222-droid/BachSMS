@@ -85,7 +85,8 @@ final class BSendOnlineModel: ObservableObject {
             UserDefaults.standard.set(cleanName, forKey: "bsend.deviceDisplayName")
             requestPayload = try JSONSerialization.data(withJSONObject: [
                 "deviceId": identity.id,
-                "deviceSecret": identity.secret,
+                "deviceOwnerSecret": identity.ownerSecret,
+                "deviceLinkSecret": identity.linkSecret,
                 "deviceName": cleanName.isEmpty ? "iPhone" : cleanName
             ])
             privateDeviceURL = identity.privateLink
