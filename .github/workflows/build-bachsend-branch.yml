@@ -1,0 +1,32 @@
+name: Build Bach Send IPA isolated
+on:
+  push:
+    branches:
+      - bachsend-v01-build
+  workflow_dispatch:
+jobs:
+  ipa:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prepare standalone
+        working-directory: BachSendStandalone
+        run: |
+          python3 generate_icon.py
+          brew install xcodegen
+          xcodegen generate
+      - name: Compile
+        working-directory: BachSendStandalone
+        run: |
+          xcodebuild -project BachSend.xcodeproj -scheme BachSend -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath build CODE_SIGNING_ALLOWED=NO build
+      - name: Package IPA
+        working-directory: BachSendStandalone
+        run: |
+          mkdir -p Payload
+          cp -R build/Build/Products/Release-iphoneos/BachSend.app Payload/
+          zip -qry BachSend-v0.1-unsigned.ipa Payload
+      - uses: actions/upload-artifact@v4
+        with:
+          name: BachSend-v0.1-unsigned
+          path: BachSendStandalone/BachSend-v0.1-unsigned.ipa
+          retention-days: 30
