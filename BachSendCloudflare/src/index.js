@@ -4,7 +4,7 @@ import browserPage from "./page.js";
 // B Send v0.5.2: one-tap pairing uses short-lived rooms and explicit iPhone consent.
 // Payloads use session-derived AES-GCM; room discovery is restricted to one active
 // iPhone. As an un-audited preview, never transfer confidential company files.
-const TTL = 60 * 60 * 1000;
+const TTL = 4 * 60 * 60 * 1000; // four-hour transfer session for large files
 const TOKEN_PATTERN = /^[a-f0-9]{64}$/;
 const ROOM_PATTERN = /^[a-f0-9]{32}$/;
 const CODE_PATTERN = /^[A-HJ-NP-Z2-9]{8}$/;
@@ -205,7 +205,7 @@ export default {
         }
       });
     if (url.pathname === "/api/health" && request.method === "GET")
-      return result({ status: "ready", version: "0.5.2-one-tap", transport: "wss", oneTap: true, shortCodes: true });
+      return result({ status: "ready", version: "0.5.4-large", transport: "wss", oneTap: true, shortCodes: true, largeFiles: true });
     if (url.pathname === "/api/session" && request.method === "POST") {
       const room = nonce(16), ownerToken = nonce(32), guestToken = nonce(32);
       const obj = env.SESSIONS.get(env.SESSIONS.idFromName(room));
