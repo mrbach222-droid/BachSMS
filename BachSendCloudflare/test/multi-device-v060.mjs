@@ -17,7 +17,9 @@ const until = async (predicate,timeout=10000) => {
   throw Error("Timeout waiting for relay message");
 };
 const connect = async url => {
-  const ws = new WebSocket(url.replace(/^http:/,"ws:").replace(/^https:/,"wss:"));
+  const secureUrl=url.replace(/^http:/,"ws:").replace(/^https:/,"wss:");
+  const ws = new WebSocket(base.startsWith("http://")
+    ? secureUrl.replace(/^wss:/,"ws:") : secureUrl);
   await new Promise((resolve,reject)=>{
     const timeout=setTimeout(()=>reject(Error("WS timeout")),12000);
     ws.addEventListener("open",()=>{clearTimeout(timeout);resolve()},{once:true});
