@@ -194,87 +194,64 @@ struct SendV2Home: View {
                         Text("AES-256-GCM").font(.system(size: 10))
                             .foregroundStyle(SendStyle.accent)
                     }
-                    if let code = online.shortCode, let shortLink = online.shortURL {
-                        VStack(spacing: 9) {
-                            Text("MÃ GHÉP NỐI PC")
-                                .font(.system(size: 10, weight: .semibold, design: .rounded))
-                                .tracking(1.5)
-                                .foregroundStyle(SendStyle.secondary)
-                            Text(String(code.prefix(4)) + "-" + String(code.suffix(4)))
-                                .font(.system(size: 27, weight: .heavy, design: .rounded))
-                                .tracking(2)
-                                .monospacedDigit()
+                    if online.shortCode != nil {
+                        VStack(spacing: 11) {
+                            Label("ĐÃ MỞ CHIA SẺ ONLINE", systemImage: "checkmark.shield.fill")
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundStyle(.green)
+                            Text("Không cần nhập mã ghép nối")
+                                .font(.system(size: 17, weight: .bold, design: .rounded))
                                 .foregroundStyle(SendStyle.accent)
-                                .minimumScaleFactor(0.7)
-                                .lineLimit(1)
-                            HStack(spacing: 7) {
-                                Button {
-                                    UIPasteboard.general.string = code
-                                    copied = true
-                                } label: {
-                                    Label("Sao chép mã", systemImage: "doc.on.doc")
-                                        .font(.system(size: 11, weight: .semibold))
-                                }
-                                .buttonStyle(.plain)
-                                .padding(.horizontal, 13).padding(.vertical, 9)
-                                .background(SendStyle.accent.opacity(0.16),
-                                            in: RoundedRectangle(cornerRadius: 9))
-                                Button {
-                                    UIPasteboard.general.string = shortLink
-                                    copied = true
-                                } label: {
-                                    Label("Sao chép link ngắn", systemImage: "link")
-                                        .font(.system(size: 11, weight: .semibold))
-                                }
-                                .buttonStyle(.plain)
-                                .padding(.horizontal, 13).padding(.vertical, 9)
-                                .background(SendStyle.accent.opacity(0.16),
-                                            in: RoundedRectangle(cornerRadius: 9))
-                            }
-                            SendQR(text: shortLink)
-                                .frame(width: 132, height: 132)
-                                .padding(8)
-                                .background(.white, in: RoundedRectangle(cornerRadius: 13))
-                            Text("Trên PC mở địa chỉ B Send Online rồi nhập mã 8 ký tự, hoặc mở QR/link ngắn.")
-                                .font(.system(size: 10))
+                            Text("Trên máy tính, mở trang B Send và bấm Kết nối. iPhone sẽ hiện yêu cầu để bạn chấp nhận.")
+                                .font(.system(size: 11))
                                 .foregroundStyle(SendStyle.secondary)
                                 .multilineTextAlignment(.center)
+                                .fixedSize(horizontal: false, vertical: true)
+                            SendQR(text: BSendOnlineModel.relay)
+                                .frame(width: 154, height: 154)
+                                .padding(8)
+                                .background(.white, in: RoundedRectangle(cornerRadius: 13))
+                            Button {
+                                UIPasteboard.general.string = BSendOnlineModel.relay
+                                copied = true
+                            } label: {
+                                Label(copied ? "Đã sao chép" : "Sao chép địa chỉ web",
+                                      systemImage: copied ? "checkmark" : "doc.on.doc")
+                                    .font(.system(size: 11, weight: .semibold))
+                                    .frame(maxWidth: .infinity).frame(height: 38)
+                            }
+                            .buttonStyle(.plain)
+                            .background(SendStyle.accent.opacity(0.15), in: RoundedRectangle(cornerRadius: 10))
                             Text("bachsend-relay.mrbach222.workers.dev")
                                 .font(.system(size: 10, design: .monospaced))
                                 .foregroundStyle(SendStyle.secondary)
                                 .textSelection(.enabled)
-                            if copied {
-                                Label("Đã sao chép", systemImage: "checkmark.circle.fill")
+                            if let expiry = online.expiry {
+                                Label("Phiên hết hạn lúc \(expiry.formatted(date: .omitted, time: .shortened))",
+                                      systemImage: "clock")
                                     .font(.system(size: 10))
-                                    .foregroundStyle(.green)
+                                    .foregroundStyle(SendStyle.secondary)
                             }
-                        }
-                        .frame(maxWidth: .infinity)
-                        if let expiry = online.expiry {
-                            Label("Mã tự hết hạn lúc \(expiry.formatted(date: .omitted, time: .shortened))",
-                                  systemImage: "clock")
-                                .font(.system(size: 10))
-                                .foregroundStyle(SendStyle.secondary)
-                        }
+                        }.frame(maxWidth: .infinity)
                     } else {
-                        Label("Tạo phiên để nhận mã 8 ký tự và QR an toàn.",
-                              systemImage: "qrcode")
+                        Label("Bật chia sẻ để máy tính tìm thấy iPhone. Bạn vẫn phải chấp nhận yêu cầu trên điện thoại.",
+                              systemImage: "network")
                             .font(.system(size: 11))
                             .foregroundStyle(SendStyle.secondary)
                             .frame(maxWidth: .infinity, minHeight: 55)
                     }
-                    if online.pendingVerification, let digits = online.verificationCode {
+                    if online.pendingVerification {
                         VStack(alignment: .leading, spacing: 9) {
                             Label("PC yêu cầu ghép nối", systemImage: "shield.lefthalf.filled")
                                 .font(.system(size: 12, weight: .bold))
                                 .foregroundStyle(SendStyle.accent)
-                            Text("Kiểm tra mã trên PC có đúng với mã bên dưới không:")
+                            Text("Một máy tính muốn gửi và nhận file qua B Send. Chỉ bấm Chấp nhận nếu chính bạn yêu cầu kết nối. Nếu không, hãy Từ chối.")
                                 .font(.system(size: 11))
                                 .foregroundStyle(SendStyle.secondary)
-                            Text(digits)
-                                .font(.system(size: 25, weight: .heavy, design: .monospaced))
-                                .tracking(5)
-                                .frame(maxWidth: .infinity)
+                            Label("Cho phép máy tính truy cập phiên chia sẻ?",
+                                  systemImage: "desktopcomputer.and.arrow.down")
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(SendStyle.accent)
                             HStack(spacing: 8) {
                                 Button { online.rejectPairing() } label: {
                                     Text("Từ chối")
@@ -284,7 +261,7 @@ struct SendV2Home: View {
                                 .buttonStyle(.plain)
                                 .background(.red.opacity(0.35), in: RoundedRectangle(cornerRadius: 10))
                                 Button { online.approvePairing() } label: {
-                                    Label("Mã trùng · Xác nhận", systemImage: "checkmark.shield")
+                                    Label("Chấp nhận", systemImage: "checkmark.shield")
                                         .font(.system(size: 11, weight: .bold))
                                         .frame(maxWidth: .infinity).frame(height: 37)
                                 }
@@ -301,7 +278,7 @@ struct SendV2Home: View {
                             .fill(online.peerOnline ? Color.green :
                                   (online.connected ? SendStyle.accent : SendStyle.secondary))
                             .frame(width: 7, height: 7)
-                        Text(online.pendingVerification ? "Chờ xác minh mã PC" : (online.pairingApproved ? "PC đã xác minh" : (online.peerOnline ? "PC đang ghép nối" :
+                        Text(online.pendingVerification ? "PC đang yêu cầu kết nối" : (online.pairingApproved ? "Đã chấp nhận PC" : (online.peerOnline ? "PC đang kết nối" :
                              (online.connected ? "Đang chờ PC mở link" :
                               (online.connecting ? "Đang kết nối Cloudflare..." : "Chưa mở phiên")))))
                             .font(.system(size: 11, weight: .medium))
@@ -311,7 +288,7 @@ struct SendV2Home: View {
                         if online.canClose { online.stop() }
                         else { online.start() }
                     } label: {
-                        Label(online.canClose ? "Dừng chia sẻ Online" : "Tạo mã Online",
+                        Label(online.canClose ? "Dừng chia sẻ Online" : "Bật chia sẻ Online",
                               systemImage: online.canClose ? "stop.fill" : "link.badge.plus")
                             .font(.system(size: 12, weight: .bold))
                             .frame(maxWidth: .infinity).frame(height: 44)
