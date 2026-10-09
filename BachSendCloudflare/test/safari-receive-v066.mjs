@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import {randomBytes,createECDH,hkdfSync,createCipheriv,createHash} from "node:crypto";
 import {webkit} from "playwright";
+import {mkdtemp,rm} from "node:fs/promises";
+import {tmpdir} from "node:os";
+import {join} from "node:path";
 const base=process.env.BSEND_BASE||"http://127.0.0.1:8787";
 const deviceId=randomBytes(16).toString("hex");
 const deviceOwnerSecret=randomBytes(32).toString("hex");
@@ -38,11 +41,15 @@ owner.addEventListener("message",event=>{
   }catch(error){signaled.push("ERR:"+error.message)}
  }
 });
-const browser=await webkit.launch({headless:true});
+// A normal Safari profile preserves origin storage. launch().newContext()
+ // creates an ephemeral private context whose WebKit Cache/IndexedDB may be
+ // destroyed on navigation, unlike the user's standard Safari profile.
+const profile=await mkdtemp(join(tmpdir(),"bsend-safari-v066-"));
 const errors=[];
-const context=await browser.newContext({
-  viewport:{width:393,height:852},deviceScaleFactor:3,isMobile:true,
-  hasTouch:true,userAgent:"Mozilla/5.0 (iPhone; CPU iPhone OS 18_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.6 Mobile/15E148 Safari/604.1"
+const context=await webkit.launchPersistentContext(profile,{
+  headless:true,viewport:{width:393,height:852},deviceScaleFactor:3,
+  isMobile:true,hasTouch:true,
+  userAgent:"Mozilla/5.0 (iPhone; CPU iPhone OS 18_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.6 Mobile/15E148 Safari/604.1"
 });
 async function connectSafari(url,name){
  const page=await context.newPage();
@@ -163,4 +170,4 @@ try{
  await page.locator("#previewClose").click();
  assert.equal(errors.length,0,JSON.stringify(errors));
  console.log("PASS Safari/WebKit remembered iPhone, media preview and completed-file persistence");
-}finally{await browser.close();owner.close();}
+}finally{await context.close();await rm(profile,{recursive:true,force:true});owner.close();}
