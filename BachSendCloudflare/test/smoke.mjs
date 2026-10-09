@@ -55,17 +55,17 @@ assert(page.includes('id="speedMode"'),"Turbo mode selector missing");
 assert(page.includes('targetWindow'),"Adaptive sender window missing");
 assert(page.includes('MB/s'),"Realtime throughput display missing");
 assert(page.includes('id="clear"') && page.includes('id="clearReceived"'),"One-tap cleanup controls missing");
-assert(page.includes('15*60*1000'),"Browser auto-purge missing");
+assert(!page.includes('Date.now()-lastActivity>15*60*1000'),"Do not auto-delete received files on idle");
 assert(page.includes('id="incomingRow"') && page.includes("updateIncomingView(incoming)"),
        "Receiver must show incoming progress automatically");
 assert(page.includes('id="desktopFolder"') && page.includes("canDirectorySave"),
        "Directory chooser should be optional and hidden on mobile browsers");
 assert(page.includes('id="folder"') && page.includes('id="clearReceived"'),
        "Optional desktop streaming and received cleanup must remain available");
-assert(page.includes('Lưu vào Tệp / Chia sẻ') &&
-       page.includes('a.textContent=mobileBrowser?"⬇":"⬇ Tải xuống"') &&
-       page.includes('menu.className="filemenu"'),
-       "Compact Safari files must retain download and share/save menu controls");
+assert(page.includes('saveIntoPhotos(name,blob)') &&
+       page.includes('previewButton.textContent="Xem"') &&
+       page.includes('a.textContent=mobileBrowser?"⬇ Tệp":"⬇ Tải về"'),
+       "Photo/video receive must offer preview & Photos share, other files download to Files");
 assert(page.includes("previewURLs=new Set(),receivedURLs=new Set()"),
        "Received download URLs should not be revoked by outgoing file preview changes");
 assert(page.includes("clearButton.onclick=clearOutgoing") &&
@@ -86,7 +86,13 @@ assert(page.includes('reason:"sha256-mismatch"') && page.includes("receivedSHA")
        "Hash mismatch must reject bytes and never expose the file");
 assert(page.includes("pendingOutgoingFiles") && page.includes("resumeQueuedBrowserUpload"),
        "Browser sender must retry its queued file after reconnect");
-assert(page.includes("updateIncomingView(incoming)") && page.includes('a.textContent=mobileBrowser?"⬇":"⬇ Tải xuống"') &&
-       page.includes("share.textContent="),
-       "Safari direct receive, download and share must remain available");
-console.log("PASS B Send v0.6.5 Compact List, Safari download/share, Smart Resume, SHA-256 and Personal Quick Connect");
+assert(page.includes("updateIncomingView(incoming)") &&
+       page.includes('id="cancelIncoming"') &&
+       page.includes('const RECEIVED_DB="bsend.local-received.v066"'),
+       "Safari must keep partials on transient disconnect and persist finished files in IndexedDB");
+assert(page.includes("restoreReceivedFiles()") && page.includes("purgeStoredReceived()"),
+       "Stored received files must reload and purge only at user's command");
+assert(page.includes("checkOwnerRoom()") && page.includes("queueReconnect()"),
+       "Web must reconnect after background/room rotation without manual reload");
+assert(!page.includes("ws.close();\n    },18000)"),"Do not force close a healthy socket on iOS background");
+console.log("PASS B Send v0.6.6 Safari persistent received files, Photos preview, auto reconnect, Smart Resume SHA-256");
