@@ -1,9 +1,9 @@
 import { DurableObject } from "cloudflare:workers";
 import browserPage from "./page.js";
 
-// B Send v0.5.2: one-tap pairing uses short-lived rooms and explicit iPhone consent.
-// Payloads use session-derived AES-GCM; room discovery is restricted to one active
-// iPhone. As an un-audited preview, never transfer confidential company files.
+// B Send v0.6: separate authenticated device-directory entries for each iPhone.
+// Each transfer session is a distinct Durable Object forwarding opaque E2E chunks.
+// No global owner discovery; this preview has not had independent security review.
 const TTL = 4 * 60 * 60 * 1000; // four-hour transfer session for large files
 const TOKEN_PATTERN = /^[a-f0-9]{64}$/;
 const ROOM_PATTERN = /^[a-f0-9]{32}$/;
@@ -47,7 +47,7 @@ export class QuickCodes extends DurableObject {
     if(url.pathname==="/register-device" && req.method==="POST"){
       const data=await req.json();
       const {deviceId,deviceSecret,room,guestToken,expiresAt}=data;
-      const name=String(data.deviceName||"iPhone").trim().slice(0,48).replace(/[\\x00-\\x1f\\x7f]/g,"");
+      const name=String(data.deviceName||"iPhone").trim().slice(0,48).replace(/[\x00-\x1f\x7f]/g,"");
       if(!ROOM_PATTERN.test(deviceId)||!TOKEN_PATTERN.test(deviceSecret)||
          !ROOM_PATTERN.test(room)||!TOKEN_PATTERN.test(guestToken)||
          !Number.isFinite(expiresAt)||expiresAt<=Date.now()||expiresAt>Date.now()+TTL+60000)
