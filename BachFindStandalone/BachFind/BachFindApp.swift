@@ -15,9 +15,12 @@ final class PhotoIndex: ObservableObject {
     @Published var query = ""
     @Published var scanning = false
     @Published var progress = 0.0
-    @Published var status = "Cấp quyền ảnh và quét thư viện để bắt đầu."
+    @Published var scanned = 0
+    @Published var total = 0
+    @Published var cloudSkipped = 0
+    @Published var status = "Cần quyền ảnh để bắt đầu nhận dạng."
     @Published var permission = PHPhotoLibrary.authorizationStatus(for: .readWrite)
-    private var worker: Task<Void,Never>?
+    private var worker: Task<Void, Never>?
 
     init() { load() }
     var allowed: Bool { permission == .authorized || permission == .limited }
@@ -32,92 +35,168 @@ final class PhotoIndex: ObservableObject {
         }.sorted { ($0.date ?? .distantPast) > ($1.date ?? .distantPast) }
     }
     static func normalize(_ source: String) -> String {
-        source.folding(options: [.diacriticInsensitive,.caseInsensitive],locale:Locale(identifier:"vi_VN")).replacingOccurrences(of:"đ",with:"d")
+        source.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: Locale(identifier: "vi_VN"))
+            .replacingOccurrences(of: "đ", with: "d")
     }
     private var dbURL: URL {
-        let dir = FileManager.default.urls(for:.applicationSupportDirectory,in:.userDomainMask)[0]
-        try? FileManager.default.createDirectory(at:dir,withIntermediateDirectories:true)
+        let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir.appendingPathComponent("bachfind-index.json")
     }
     func load() {
-        if let data = try? Data(contentsOf:dbURL), let saved = try? JSONDecoder().decode([IndexedPhoto].self,from:data) {
+        if let data = try? Data(contentsOf: dbURL),
+           let saved = try? JSONDecoder().decode([IndexedPhoto].self, from: data) {
             items = saved
-            status = "Đã lưu \(saved.count) ảnh trong chỉ mục."
+            status = "Đã tìm thấy chỉ mục chứa \(saved.count) ảnh."
         }
     }
     func save() {
         if let data = try? JSONEncoder().encode(items) {
-            do {try data.write(to:dbURL,options:.atomic)}
-            catch {status = "Lỗi lưu chỉ mục: \(error.localizedDescription)"}
+            do { try data.write(to: dbURL, options: .atomic) }
+            catch { status = "Không lưu được chỉ mục: \(error.localizedDescription)" }
+        }
+    }
+    func refreshPermission() {
+        permission = PHPhotoLibrary.authorizationStatus(for: .readWrite)
+        if !allowed && (permission == .denied || permission == .restricted) {
+            status = "iPhone chưa cấp quyền ảnh. Mở Cài đặt để cấp quyền."
         }
     }
     func askAndScan() async {
-        permission = await PHPhotoLibrary.requestAuthorization(for:.readWrite)
-        if allowed { scan() } else {status = "Bạn chưa cho phép truy cập ảnh."}
+        refreshPermission()
+        if permission == .notDetermined {
+            permission = await PHPhotoLibrary.requestAuthorization(for: .readWrite)
+        }
+        if allowed {
+            scan()
+        } else {
+            status = "Chưa có quyền đọc ảnh. Vào Cài đặt > Bách Find > Ảnh để bật quyền."
+        }
     }
     func clear() {
-        cancel()
+        guard !scanning else {
+            status = "Hãy dừng quá trình quét trước khi xóa chỉ mục."
+            return
+        }
         items = []
+        scanned = 0
+        total = 0
+        cloudSkipped = 0
+        progress = 0
         save()
-        status = "Đã xóa chỉ mục. Ảnh gốc không bị xóa."
+        status = "Đã xóa chỉ mục. Ảnh gốc vẫn còn nguyên."
     }
     func cancel() {
+        guard scanning else { return }
         worker?.cancel()
-        worker = nil
-        scanning = false
-        status = "Đã tạm dừng. Nhấn Quét để tiếp tục."
+        status = "Đang tạm dừng, vui lòng chờ..."
     }
     func scan() {
-        guard allowed && !scanning else {return}
+        refreshPermission()
+        guard allowed else {
+            status = "Hãy cấp quyền ảnh trước khi quét."
+            return
+        }
+        guard !scanning else { return }
         scanning = true
         progress = 0
+        scanned = 0
+        cloudSkipped = 0
+        status = "Đang chuẩn bị thư viện..."
         worker = Task {
             let opts = PHFetchOptions()
-            opts.sortDescriptors = [NSSortDescriptor(key:"creationDate",ascending:false)]
-            let assets = PHAsset.fetchAssets(with:.image,options:opts)
+            opts.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: false)]
+            let assets = PHAsset.fetchAssets(with: .image, options: opts)
             let count = assets.count
+            total = count
+            if count == 0 {
+                status = permission == .limited
+                    ? "Bạn mới cho phép một số ảnh. Hãy chọn thêm ảnh trong quyền truy cập."
+                    : "Thư viện chưa có ảnh nào có thể đọc."
+                scanning = false
+                worker = nil
+                return
+            }
             var known = Set(items.map(\.id))
             var visible = Set<String>()
+            var unavailable = 0
             for i in 0..<count {
                 if Task.isCancelled { break }
-                let asset = assets.object(at:i)
+                let asset = assets.object(at: i)
                 visible.insert(asset.localIdentifier)
                 if !known.contains(asset.localIdentifier) {
-                    if let text = await Self.ocr(asset), !text.isEmpty {
-                        items.append(IndexedPhoto(id:asset.localIdentifier,date:asset.creationDate,text:text))
+                    let result = await Self.ocr(asset)
+                    if Task.isCancelled { break }
+                    if let text = result.text, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        items.append(IndexedPhoto(id: asset.localIdentifier, date: asset.creationDate, text: text))
                         known.insert(asset.localIdentifier)
+                    } else if result.inCloud {
+                        cloudSkipped += 1
+                    } else {
+                        unavailable += 1
                     }
                 }
-                progress = Double(i+1)/Double(max(count,1))
-                if i % 12 == 0 { save(); await Task.yield() }
+                scanned = i + 1
+                progress = Double(scanned) / Double(count)
+                if scanned % 15 == 0 {
+                    status = "Đã kiểm tra \(scanned)/\(count) ảnh; nhận dạng được \(items.count) ảnh."
+                    save()
+                    await Task.yield()
+                }
             }
-            if !Task.isCancelled {
+            if Task.isCancelled {
+                status = "Đã tạm dừng ở \(scanned)/\(count) ảnh. Nhấn Quét để tiếp tục."
+            } else {
                 items.removeAll { !visible.contains($0.id) }
-                status = "Hoàn tất: \(items.count) ảnh có nội dung nhận dạng."
+                status = "Hoàn tất \(count) ảnh; nhận dạng được \(items.count) ảnh."
+                if cloudSkipped > 0 {
+                    status += " \(cloudSkipped) ảnh chỉ có trên iCloud: cần tải về máy trước khi quét."
+                }
+                if items.isEmpty && cloudSkipped == 0 {
+                    status += " Hãy thử với ảnh có chữ hoặc số rõ nét."
+                }
+                if unavailable > 0 && items.isEmpty {
+                    status += " Có \(unavailable) ảnh chưa đọc được."
+                }
             }
             save()
             scanning = false
             worker = nil
         }
     }
-    nonisolated static func ocr(_ asset:PHAsset) async -> String? {
-        await Task.detached(priority:.utility) {
-            let opt = PHImageRequestOptions()
-            opt.isSynchronous = true
-            opt.isNetworkAccessAllowed = false
-            opt.deliveryMode = .highQualityFormat
+    nonisolated static func ocr(_ asset: PHAsset) async -> (text: String?, inCloud: Bool) {
+        let output = await Task.detached(priority: .utility) { () -> (String?, Bool) in
+            let options = PHImageRequestOptions()
+            options.isSynchronous = true
+            options.isNetworkAccessAllowed = false
+            options.deliveryMode = .highQualityFormat
             var photo: UIImage?
-            PHImageManager.default().requestImage(for:asset,targetSize:CGSize(width:2000,height:2000),contentMode:.aspectFit,options:opt) { img,_ in photo = img }
-            guard let cg = photo?.cgImage else {return nil}
-            let req = VNRecognizeTextRequest()
-            req.recognitionLevel = .accurate
-            req.automaticallyDetectsLanguage = true
-            req.usesLanguageCorrection = false
+            var cloud = false
+            PHImageManager.default().requestImage(
+                for: asset, targetSize: CGSize(width: 2200, height: 2200),
+                contentMode: .aspectFit, options: options
+            ) { image, info in
+                photo = image
+                if (info?[PHImageResultIsInCloudKey] as? NSNumber)?.boolValue == true {
+                    cloud = true
+                }
+            }
+            guard let cg = photo?.cgImage else { return (nil, cloud) }
+            let request = VNRecognizeTextRequest()
+            request.recognitionLevel = .accurate
+            request.automaticallyDetectsLanguage = true
+            request.usesLanguageCorrection = false
             do {
-                try VNImageRequestHandler(cgImage:cg,options:[:]).perform([req])
-                return (req.results ?? []).compactMap{$0.topCandidates(1).first?.string}.joined(separator:"\n")
-            } catch {return nil}
+                try VNImageRequestHandler(cgImage: cg, options: [:]).perform([request])
+                let text = (request.results ?? [])
+                    .compactMap { $0.topCandidates(1).first?.string }
+                    .joined(separator: "\n")
+                return (text, false)
+            } catch {
+                return (nil, cloud)
+            }
         }.value
+        return (output.0, output.1)
     }
 }
 
