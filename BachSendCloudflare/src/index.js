@@ -44,31 +44,49 @@ export class QuickCodes extends DurableObject {
       if(!alarm||alarm>Date.now()+60000)await this.ctx.storage.setAlarm(Date.now()+60000);
       return result({ok:true});
     }
-    if(url.pathname==="/connect-auto" && req.method==="GET"){
-      const ip=(req.headers.get("CF-Connecting-IP")||"unknown").slice(0,80);
-      const period=Math.floor(Date.now()/60000),rateKey="auto:"+ip+":"+period;
-      const hits=await this.ctx.storage.get(rateKey)||0;
-      if(hits>=6)return result({error:"rate_limited"},429);
-      await this.ctx.storage.put(rateKey,hits+1);
-      const now=Date.now();
-      const all=await this.ctx.storage.list({prefix:"code:"});
-      const available=[];
-      for(const [id,entry] of all){
-        if(entry.expiresAt<=now)continue;
-        const stub=this.env.SESSIONS.get(this.env.SESSIONS.idFromName(entry.room));
-        const presence=await stub.fetch(new Request("https://room.internal/presence"));
-        if(!presence.ok)continue;
-        const status=await presence.json();
-        if(status.ownerOnline && !status.guestOnline){
-          available.push({...entry,createdAt:entry.createdAt||0});
-        }
-      }
-      if(available.length===0)return result({error:"no_online_iphone"},404);
-      // Avoid connecting to an arbitrary user's iPhone when several are sharing.
-      if(available.length>1)return result({error:"multiple_iphones"},409);
-      const {room,guestToken,expiresAt}=available[0];
-      return result({room,guestToken,expiresAt});
+    if(url.pathname==="/register-device" && req.method==="POST"){
+      const data=await req.json();
+      const {deviceId,deviceSecret,room,guestToken,expiresAt}=data;
+      const name=String(data.deviceName||"iPhone").trim().slice(0,48).replace(/[\\x00-\\x1f\\x7f]/g,"");
+      if(!ROOM_PATTERN.test(deviceId)||!TOKEN_PATTERN.test(deviceSecret)||
+         !ROOM_PATTERN.test(room)||!TOKEN_PATTERN.test(guestToken)||
+         !Number.isFinite(expiresAt)||expiresAt<=Date.now()||expiresAt>Date.now()+TTL+60000)
+        return result({error:"bad_device_data"},400);
+      const identityKey="identity:"+deviceId;
+      const suppliedHash=await hashed(deviceSecret);
+      const registered=await this.ctx.storage.get(identityKey);
+      if(registered&&registered!==suppliedHash)
+        return result({error:"device_identity_conflict"},403);
+      if(!registered)await this.ctx.storage.put(identityKey,suppliedHash);
+      await this.ctx.storage.put("device:"+deviceId,{room,guestToken,expiresAt,name});
+      return result({ok:true});
     }
+    if(url.pathname==="/connect-device" && req.method==="POST"){
+      const ip=(req.headers.get("CF-Connecting-IP")||"unknown").slice(0,80);
+      const period=Math.floor(Date.now()/60000),rateKey="device-rate:"+ip+":"+period;
+      const hits=await this.ctx.storage.get(rateKey)||0;
+      if(hits>=40)return result({error:"rate_limited"},429);
+      await this.ctx.storage.put(rateKey,hits+1);
+      let body;try{body=await req.json()}catch{return result({error:"bad_json"},400)}
+      if(!ROOM_PATTERN.test(body?.deviceId||"")||!TOKEN_PATTERN.test(body?.deviceSecret||""))
+        return result({error:"invalid_device_link"},400);
+      const identity=await this.ctx.storage.get("identity:"+body.deviceId);
+      if(!identity||identity!==await hashed(body.deviceSecret))
+        return result({error:"invalid_device_link"},403);
+      const entry=await this.ctx.storage.get("device:"+body.deviceId);
+      if(!entry||entry.expiresAt<=Date.now())return result({error:"device_offline"},404);
+      const stub=this.env.SESSIONS.get(this.env.SESSIONS.idFromName(entry.room));
+      const presence=await stub.fetch(new Request("https://room.internal/presence"));
+      if(!presence.ok)return result({error:"device_offline"},404);
+      const status=await presence.json();
+      if(!status.ownerOnline)return result({error:"device_offline"},404);
+      if(status.guestOnline)return result({error:"device_busy"},409);
+      return result({room:entry.room,guestToken:entry.guestToken,
+                     expiresAt:entry.expiresAt,name:entry.name});
+    }
+    // Do not let a stranger globally discover the only online iPhone.
+    if(url.pathname==="/connect-auto" && req.method==="GET")
+      return result({error:"private_device_link_required"},410);
     const m=url.pathname.match(/^\/resolve\/([A-HJ-NP-Z2-9]{8})$/);
     if(m&&req.method==="GET"){
       const ip=(req.headers.get("CF-Connecting-IP")||"unknown").slice(0,80);
@@ -89,7 +107,11 @@ export class QuickCodes extends DurableObject {
       if(key.startsWith("code:")){
         if(value.expiresAt<=now)await this.ctx.storage.delete(key);
         else open=true;
-      }else if((key.startsWith("ip:")||key.startsWith("auto:"))&&Number(key.split(":").at(-1))<period-3){
+      }else if(key.startsWith("device:")){
+        if(value.expiresAt<=now)await this.ctx.storage.delete(key);
+        else open=true;
+      }else if((key.startsWith("ip:")||key.startsWith("auto:")||
+                 key.startsWith("device-rate:"))&&Number(key.split(":").at(-1))<period-3){
         await this.ctx.storage.delete(key);
       }
     }
@@ -205,8 +227,10 @@ export default {
         }
       });
     if (url.pathname === "/api/health" && request.method === "GET")
-      return result({ status: "ready", version: "0.5.5-turbo", transport: "wss", oneTap: true, shortCodes: true, largeFiles: true });
+      return result({ status: "ready", version: "0.6.0-private-device", transport: "wss", privateDevices: true, globalDiscovery: false, shortCodes: true, largeFiles: true });
     if (url.pathname === "/api/session" && request.method === "POST") {
+      let requestBody={};
+      try{requestBody=await request.json()}catch{return result({error:"bad_json"},400)}
       const room = nonce(16), ownerToken = nonce(32), guestToken = nonce(32);
       const obj = env.SESSIONS.get(env.SESSIONS.idFromName(room));
       const create = await obj.fetch(new Request("https://internal.room/init", {
@@ -226,6 +250,19 @@ export default {
         if(attempt.ok){code=candidate;break;}
       }
       if(!code)return result({error:"quick_code_capacity"},503);
+      if(requestBody.deviceId||requestBody.deviceSecret){
+        const registered=await dir.fetch(new Request("https://directory.internal/register-device",{
+          method:"POST",headers:{"content-type":"application/json"},
+          body:JSON.stringify({deviceId:requestBody.deviceId,
+              deviceSecret:requestBody.deviceSecret,
+              deviceName:requestBody.deviceName,
+              room,guestToken,expiresAt:data.expiresAt})
+        }));
+        if(!registered.ok){
+          const error=await registered.json();
+          return result({error:error.error||"device_registration_failed"},registered.status);
+        }
+      }
       return result({
         code,
         shortURL: url.origin+"/p/"+code,
@@ -234,6 +271,15 @@ export default {
           "/ws?role=owner&token=" + ownerToken,
         guestURL: url.origin + "/s/" + room + "#" + guestToken,
       }, 201);
+    }
+    if(url.pathname==="/api/device/connect" && request.method==="POST"){
+      const dir=env.CODES.get(env.CODES.idFromName("quick-directory"));
+      return dir.fetch(new Request("https://directory.internal/connect-device",{
+        method:"POST",
+        headers:{"content-type":"application/json",
+                 "CF-Connecting-IP":request.headers.get("CF-Connecting-IP")||"unknown"},
+        body:await request.text()
+      }));
     }
     if(url.pathname==="/api/auto-connect" && request.method==="GET"){
       const dir=env.CODES.get(env.CODES.idFromName("quick-directory"));
@@ -257,6 +303,15 @@ export default {
           "referrer-policy":"no-referrer","x-content-type-options":"nosniff",
           "content-security-policy":"default-src 'none';frame-ancestors 'none';base-uri 'none';" +
             "script-src 'unsafe-inline';style-src 'unsafe-inline';connect-src 'self' wss:;img-src 'self' data: blob:;media-src blob:"}
+      });
+    }
+    const device = url.pathname.match(/^\\/d\\/([a-f0-9]{32})$/);
+    if(device && request.method==="GET"){
+      return new Response(browserPage(""), {
+        headers: {"content-type":"text/html;charset=utf-8","cache-control":"no-store",
+          "referrer-policy":"no-referrer","x-content-type-options":"nosniff",
+          "content-security-policy":"default-src 'none';frame-ancestors 'none';base-uri 'none';" +
+          "script-src 'unsafe-inline';style-src 'unsafe-inline';connect-src 'self' wss:;img-src 'self' data: blob:;media-src blob:"}
       });
     }
     const page = url.pathname.match(/^\/s\/([a-f0-9]{32})$/);
