@@ -46,8 +46,8 @@ const context=await browser.newContext({
 });
 async function connectSafari(url,name){
  const page=await context.newPage();
- page.on("pageerror",e=>errors.push("pageerror "+e.message));
- page.on("console",e=>{if(e.type()==="error")errors.push("console "+e.text())});
+ page.on("pageerror",e=>{errors.push("pageerror "+e.message);console.log("WEBKIT PAGE ERROR",e.message,e.stack?.slice(0,500))});
+ page.on("console",e=>{if(e.type()==="error"){errors.push("console "+e.text());console.log("WEBKIT CONSOLE ERROR",e.text())}});
  const navigated=await page.goto(url,{waitUntil:"domcontentloaded",timeout:20000});
  assert.equal(navigated.status(),200,name+": Bad HTTP response");
  const diagnosis=await page.evaluate(()=>({
@@ -59,9 +59,23 @@ async function connectSafari(url,name){
    hasDevices:!!document.getElementById("devicesList")
  }));
  console.log(name,"initial",JSON.stringify(diagnosis));
- await page.waitForFunction(()=>{
-   return document.getElementById("state")?.textContent.includes("Mã hóa đầu cuối");
- },{timeout:15000});
+ try{
+  await page.waitForFunction(()=>{
+    return document.getElementById("state")?.textContent.includes("Mã hóa đầu cuối");
+  },null,{timeout:12000});
+ }catch(e){
+  const diag=await page.evaluate(()=>({
+    state:document.getElementById("state")?.textContent,
+    error:document.getElementById("notice")?.textContent,
+    hash:location.hash,
+    preferred:localStorage.getItem("bsend.personal.preferred.v062"),
+    scripts:[...document.scripts].map(x=>x.textContent?.length),
+    online:!!document.getElementById("pair"),
+    ready:document.readyState
+  })).catch(x=>({error:String(x)}));
+  console.log("SAFARI DIAGNOSTIC",name,JSON.stringify({diag,errors,signaled}));
+  throw e;
+ }
  const data=await page.evaluate(()=>({
   state:document.getElementById("state")?.textContent,
   note:document.getElementById("notice")?.textContent,
