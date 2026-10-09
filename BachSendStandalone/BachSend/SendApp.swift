@@ -138,21 +138,15 @@ struct PickerTransfer: Transferable {
         message = "Đã xóa toàn bộ bản sao do B Send quản lý. File gốc vẫn an toàn."
     }
 
-    // B Send never backs up transfer copies to iCloud. Default TTL: 60 minutes.
-    // This is cleanup on app activity, NOT an iOS background scheduler.
+    // Keep *received* files until explicit Save/Delete: silent 60-minute
+    // deletion caused users to lose photos before deciding whether to save.
+    // Only stale unsent temporary selection copies have a 60-minute cleanup.
+    // Received files remain excluded from iCloud backup.
     func purgeExpiredIfIdle(onlineBusy: Bool = false) {
         guard !active && !onlineBusy else { return }
         cleanTemporaryCopies()
-        let received = (try? FileManager.default.contentsOfDirectory(
-            at: Self.receivedDir, includingPropertiesForKeys: [.contentModificationDateKey])) ?? []
-        let now = Date()
-        for url in received {
-            let time = (try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate)
-                ?? .distantPast
-            if now.timeIntervalSince(time) > Self.autoPurgeSeconds {
-                try? FileManager.default.removeItem(at: url)
-            }
-        }
+        // Do not silently purge Self.receivedDir. Users explicitly manage
+        // local copies using "Lưu vào Ảnh", Share and Xóa tất cả.
     }
 
     private func cleanTemporaryCopies() {
