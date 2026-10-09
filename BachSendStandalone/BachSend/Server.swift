@@ -15,12 +15,13 @@ final class LocalFileServer {
     private let started:(UInt16)->Void
     private let received:(String)->Void
     private let failed:(String)->Void
+    private let progress:(String,Double,Bool)->Void
     private var listener:NWListener?
     private var files:[SharedTransferFile]
     private var clients:[UUID:HTTPPeer]=[:]
-    init(token:String,files:[SharedTransferFile],destination:URL,started:@escaping(UInt16)->Void,received:@escaping(String)->Void,failed:@escaping(String)->Void){
+    init(token:String,files:[SharedTransferFile],destination:URL,started:@escaping(UInt16)->Void,received:@escaping(String)->Void,progress:@escaping(String,Double,Bool)->Void,failed:@escaping(String)->Void){
         self.token=token;self.files=files;self.destination=destination
-        self.started=started;self.received=received;self.failed=failed
+        self.started=started;self.received=received;self.progress=progress;self.failed=failed
     }
     func start(){
         queue.async {
@@ -45,14 +46,14 @@ final class LocalFileServer {
     func stop(){
         queue.async {
             self.listener?.cancel();self.listener=nil
-            for client in self.clients.values{client.stop()}
+            for client in Array(self.clients.values){client.stop()}
             self.clients.removeAll()
         }
     }
     func update(_ list:[SharedTransferFile]){queue.async{self.files=list}}
     private func accept(_ connection:NWConnection){
         let id=UUID()
-        let client=HTTPPeer(connection:connection,queue:queue,token:token,destination:destination,files:{[weak self] in self?.files ?? []},received:{[weak self] name in self?.received(name)},done:{[weak self] in self?.clients[id]=nil})
+        let client=HTTPPeer(connection:connection,queue:queue,token:token,destination:destination,files:{[weak self] in self?.files ?? []},received:{[weak self] name in self?.received(name)},progress:{[weak self] n,r,u in self?.progress(n,r,u)},done:{[weak self] in self?.clients[id]=nil})
         clients[id]=client
         client.start()
     }
@@ -65,7 +66,12 @@ private final class HTTPPeer {
     private let destinationDir:URL
     private let files:()->[SharedTransferFile]
     private let received:(String)->Void
+    private let progress:(String,Double,Bool)->Void
     private let done:()->Void
+    private var lastReport = 0
+    private var sentBytes: Int64 = 0
+    private var sendSize: Int64 = 0
+    private var sendName = ""
     private var header=Data()
     private var expected=0
     private var got=0
@@ -74,9 +80,9 @@ private final class HTTPPeer {
     private var filename=""
     private var closed=false
     private var responding=false
-    init(connection:NWConnection,queue:DispatchQueue,token:String,destination:URL,files:@escaping()->[SharedTransferFile],received:@escaping(String)->Void,done:@escaping()->Void){
+    init(connection:NWConnection,queue:DispatchQueue,token:String,destination:URL,files:@escaping()->[SharedTransferFile],received:@escaping(String)->Void,progress:@escaping(String,Double,Bool)->Void,done:@escaping()->Void){
         self.connection=connection;self.queue=queue;self.token=token;self.destinationDir=destination
-        self.files=files;self.received=received;self.done=done
+        self.files=files;self.received=received;self.progress=progress;self.done=done
     }
     func start(){
         connection.stateUpdateHandler = {[weak self] state in
@@ -146,6 +152,8 @@ private final class HTTPPeer {
             output=writer
             expected=length
             got=0
+            lastReport=0
+            progress(filename,0,true)
             consume(body)
             return
         }
@@ -156,6 +164,10 @@ private final class HTTPPeer {
         guard got+data.count<=expected else{reply(400,"Invalid length");return}
         do{try output.write(contentsOf:data)}catch{reply(500,"Write error");return}
         got+=data.count
+        if got == expected || got-lastReport >= max(262144,expected/100) {
+            lastReport=got
+            progress(filename,Double(got)/Double(max(expected,1)),true)
+        }
         if got==expected{
             do{try output.close()}catch{reply(500,"File close error");return}
             self.output=nil
@@ -172,6 +184,10 @@ private final class HTTPPeer {
     private func stream(_ file:SharedTransferFile){
         guard let reader=try? FileHandle(forReadingFrom:file.url) else{reply(404,"Missing file");return}
         responding=true
+        sentBytes=0
+        sendSize=file.size
+        sendName=file.name
+        progress(sendName,0,false)
         let encoded=file.name.addingPercentEncoding(withAllowedCharacters:.alphanumerics) ?? "download"
         let h="HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Disposition: attachment; filename*=UTF-8''\(encoded)\r\nContent-Length: \(file.size)\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n"
         connection.send(content:Data(h.utf8),completion:.contentProcessed {[weak self] error in
@@ -184,7 +200,13 @@ private final class HTTPPeer {
         if data.isEmpty{try? handle.close();close();return}
         connection.send(content:data,completion:.contentProcessed{[weak self] error in
             if error != nil{try? handle.close();self?.close()}
-            else{self?.sendChunk(handle)}
+            else {
+                self?.sentBytes += Int64(data.count)
+                if let self {
+                    self.progress(self.sendName,Double(self.sentBytes)/Double(max(self.sendSize,1)),false)
+                }
+                self?.sendChunk(handle)
+            }
         })
     }
     private func reply(_ code:Int,_ text:String){response(code,"text/plain; charset=utf-8",Data(text.utf8))}
