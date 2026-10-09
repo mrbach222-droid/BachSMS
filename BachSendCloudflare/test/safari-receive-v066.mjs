@@ -126,6 +126,12 @@ try{
   });
  },null,{timeout:12000});
  console.log("PASS Safari received image preview, SHA256 verified and IndexedDB durable save");
+ console.log("BEFORE RELOAD LOCAL MEDIA",await page.evaluate(async()=>({
+  origin:location.origin,
+  index:localStorage.getItem("bsend.local-received-index.v066"),
+  cacheKeys:await (async()=>{try{const c=await caches.open("bsend.local-received-cache.v066");return (await c.keys()).map(q=>q.url)}catch(e){return ["ERR:"+e.message]}})(),
+  receipt:document.getElementById("received")?.innerHTML?.slice(0,200)
+ })));
  await page.reload({waitUntil:"domcontentloaded"});
  try{
   await page.waitForFunction(()=>Array.from(document.querySelectorAll("#received .file")).some(r=>r.dataset.name==="test-photo.png"),null,{timeout:12000});
@@ -134,7 +140,8 @@ try{
    const dom={url:location.pathname,ready:document.readyState,
      state:document.getElementById("state")?.textContent,
      received:document.getElementById("received")?.innerHTML?.slice(0,400),
-     notice:document.getElementById("notice")?.textContent};
+     notice:document.getElementById("notice")?.textContent,
+     index:localStorage.getItem("bsend.local-received-index.v066")};
    dom.db=await new Promise(resolve=>{
     const request=indexedDB.open("bsend.local-received.v066",1);
     request.onsuccess=()=>{
@@ -144,6 +151,7 @@ try{
     };
     request.onerror=()=>resolve({error:String(request.error)});
    });
+   dom.cacheKeys=await (async()=>{try{const c=await caches.open("bsend.local-received-cache.v066");return (await c.keys()).map(q=>q.url)}catch(e){return ["ERR:"+e.message]}})();
    return dom;
   });
   console.log("RESTORE DIAGNOSTIC",JSON.stringify({diagnostic,errors}));
