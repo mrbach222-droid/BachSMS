@@ -79,11 +79,10 @@ export class TransferRoom extends DurableObject {
       }
       let frame;
       try { frame = JSON.parse(payload); } catch { return; }
-      if (!["file-start", "file-end", "file-cancel"].includes(frame.type)) return;
-      if (frame.type === "file-start" &&
-          (typeof frame.name !== "string" || frame.name.length > 160 ||
-           !Number.isSafeInteger(frame.size) || frame.size < 0 || frame.size > 50 * 1024 * 1024))
-        return;
+      // Metadata is encrypted on iPhone/PC. Relay only forwards opaque sealed envelopes.
+      if (frame.type !== "enc" || typeof frame.blob !== "string" ||
+          frame.blob.length < 40 || frame.blob.length > 4000 ||
+          !/^[A-Za-z0-9+/=]+$/.test(frame.blob)) return;
     } else if (payload.byteLength > 65536) {
       ws.close(1009, "Chunk too big"); return;
     }
