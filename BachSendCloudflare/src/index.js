@@ -80,7 +80,7 @@ export class QuickCodes extends DurableObject {
       if(!data||data.expiresAt<=Date.now())return result({error:"not_found_or_expired"},404);
       return result(data);
     }
-    return result({error:"not_found"},404);
+    return result({error:"not_found",from:"directory",path:url.pathname},404);
   }
   async alarm(){
     const data=await this.ctx.storage.list(),now=Date.now(),period=Math.floor(now/60000);
@@ -277,6 +277,6 @@ export default {
       return obj.fetch(new Request("https://internal.room/ws" + url.search,
         { method: "GET", headers: request.headers }));
     }
-    return result({ error: "not_found" }, 404);
+    return result({ error: "not_found", from:"worker", path:url.pathname }, 404);
   },
 };
