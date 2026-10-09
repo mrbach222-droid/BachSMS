@@ -326,13 +326,7 @@ final class BSendOnlineModel: ObservableObject {
             sharedKey = derived
             pairingApproved = false
             pendingVerification = true
-            let bytes = derived.withUnsafeBytes { Data($0) }
-            let checksum = SHA256.hash(data: bytes + Data("BSEND VERIFY".utf8))
-            let digits = checksum.withUnsafeBytes { buffer -> Int in
-                let b = buffer.bindMemory(to: UInt8.self)
-                return ((Int(b[0]) << 16) | (Int(b[1]) << 8) | Int(b[2])) % 1000000
-            }
-            verificationCode = String(format: "%06d", digits)
+            verificationCode = nil
             guard let socket else { return }
             let answer = [
                 "type": "key-answer",
@@ -341,7 +335,7 @@ final class BSendOnlineModel: ObservableObject {
             let answerData = try JSONSerialization.data(withJSONObject: answer)
             guard let text = String(data: answerData, encoding: .utf8) else { return }
             try await socket.send(.string(text))
-            message = "So sánh mã 6 số hiển thị trên iPhone và PC rồi xác nhận."
+            message = "Máy tính đang yêu cầu kết nối. Bấm Chấp nhận để cho phép gửi và nhận file."
         case "enc":
             guard let encoded = json["blob"] as? String,
                   let sealed = Data(base64Encoded: encoded),
@@ -452,7 +446,7 @@ final class BSendOnlineModel: ObservableObject {
                 pairingApproved = true
                 pendingVerification = false
                 verificationCode = nil
-                message = "Đã xác minh mã giống nhau. Có thể truyền file Online."
+                message = "Đã chấp nhận máy tính. Có thể gửi và nhận file Online."
             } catch {
                 message = "Lỗi xác nhận ghép nối: \(error.localizedDescription)"
             }
