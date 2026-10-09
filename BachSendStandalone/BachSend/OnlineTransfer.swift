@@ -48,6 +48,8 @@ final class BSendOnlineModel: ObservableObject {
     private var pingTask: Task<Void, Never>?
     private var sessionMarker = UUID()
     private var sharedKey: SymmetricKey?
+    private var pendingPCPublicKey: Data?
+    private var trustedChallenge: String?
     private var roomID = ""
     private var incomingFile: FileHandle?
     private var incomingTemporary: URL?
@@ -345,6 +347,8 @@ final class BSendOnlineModel: ObservableObject {
         ownerURL = nil
         cleanupIncoming()
         sharedKey = nil
+        pendingPCPublicKey = nil
+        trustedChallenge = nil
         roomID = ""
         shortCode = nil
         shortURL = nil
@@ -430,8 +434,11 @@ final class BSendOnlineModel: ObservableObject {
                                                           sharedInfo: info,
                                                           outputByteCount: 32)
             sharedKey = derived
+            pendingPCPublicKey = data
+            trustedChallenge = nil
             pairingApproved = false
-            pendingVerification = true
+            let isPersonalPC = (try? BSendTrustedPCStore.contains(data)) ?? false
+            pendingVerification = !isPersonalPC
             verificationCode = nil
             guard let socket else { return }
             let answer = [
@@ -441,7 +448,16 @@ final class BSendOnlineModel: ObservableObject {
             let answerData = try JSONSerialization.data(withJSONObject: answer)
             guard let text = String(data: answerData, encoding: .utf8) else { return }
             try await socket.send(.string(text))
-            message = "Máy tính đang yêu cầu kết nối. Bấm Chấp nhận để cho phép gửi và nhận file."
+            if isPersonalPC {
+                // Require an AES-GCM response to a fresh random challenge.
+                // Replaying a trusted public key is NOT enough for auto approval.
+                let challenge = UUID().uuidString.lowercased()
+                trustedChallenge = challenge
+                try await sendControl(["type": "trust-probe", "nonce": challenge])
+                message = "Đang tự xác minh máy tính cá nhân đã tin cậy..."
+            } else {
+                message = "PC mới muốn kết nối. Bấm Chấp nhận một lần để ghi nhớ máy tính này."
+            }
         case "enc":
             guard let encoded = json["blob"] as? String,
                   let sealed = Data(base64Encoded: encoded),
@@ -455,6 +471,19 @@ final class BSendOnlineModel: ObservableObject {
 
     private func handleControl(_ type: String, _ json: [String: Any]) async throws {
         switch type {
+        case "trust-proof":
+            guard let proof = json["nonce"] as? String,
+                  let challenge = trustedChallenge, proof == challenge,
+                  let publicKey = pendingPCPublicKey,
+                  (try? BSendTrustedPCStore.contains(publicKey)) == true,
+                  !pairingApproved else { return }
+            trustedChallenge = nil
+            // Only a browser possessing the paired private ECDH key can
+            // decrypt trust-probe and encrypt trust-proof with this room key.
+            try await sendControl(["type": "pair-approved"])
+            pairingApproved = true
+            pendingVerification = false
+            message = "PC cá nhân đã tự kết nối an toàn. Không cần xác nhận lại."
         case "resume-probe":
             guard pairingApproved, sharedKey != nil,
                   let check = json["nonce"] as? String,
@@ -567,11 +596,31 @@ final class BSendOnlineModel: ObservableObject {
                 try await sendControl(["type": "pair-approved"])
                 pairingApproved = true
                 pendingVerification = false
+                trustedChallenge = nil
                 verificationCode = nil
-                message = "Đã chấp nhận máy tính. Có thể gửi và nhận file Online."
+                if let publicKey = pendingPCPublicKey {
+                    do {
+                        try BSendTrustedPCStore.add(publicKey)
+                        message = "Đã tin cậy PC cá nhân này. Lần sau chỉ cần mở web là tự kết nối."
+                    } catch {
+                        message = "PC đã kết nối, nhưng không lưu được tin cậy vào Keychain. Lần sau cần xác nhận lại."
+                    }
+                } else {
+                    message = "Đã chấp nhận PC. Có thể truyền file Online."
+                }
             } catch {
                 message = "Lỗi xác nhận ghép nối: \(error.localizedDescription)"
             }
+        }
+    }
+
+    func forgetTrustedComputers() {
+        do {
+            try BSendTrustedPCStore.clear()
+            stop(clearStatus: false)
+            message = "Đã quên PC tin cậy. Lần kết nối tiếp theo cần xác nhận lại."
+        } catch {
+            message = "Không thể xóa danh sách PC tin cậy: \(error.localizedDescription)"
         }
     }
 
