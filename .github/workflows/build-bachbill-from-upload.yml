@@ -81,7 +81,7 @@ jobs:
           file = Path("App/ScanStore.swift")
           old = file.read_text(encoding="utf-8")
           if "import SwiftUI" not in old:
-              file.write_text("import SwiftUI\\n" + old, encoding="utf-8")
+              file.write_text("import SwiftUI\n" + old, encoding="utf-8")
           PY
           swift test 2>&1 | tee -a "$LOG"
           if ! command -v xcodegen >/dev/null; then
