@@ -19,6 +19,12 @@ assert(!page.includes("/api/auto-connect"),"Global auto-connect must not be used
 assert(page.includes("/api/device/connect"),"Per-device authenticated resolution missing");
 assert(page.includes('id="devicesList"') && page.includes('id="privateLink"'),
        "Device list and private-link import missing");
+assert(page.includes('id="privateLink" type="password"'),
+       "Private credential should be masked in manual join field");
+assert(page.includes("navigator.clipboard.readText()") && page.includes('id="pasteDevice"'),
+       "Secure clipboard onboarding should not display raw device URL");
+assert(!page.includes('id="privateLink" type="text"'),
+       "Never expose sensitive private link as a visible text input");
 assert(page.includes("localStorage") && page.includes("validPrivateLink"),
        "PC must persist authorized devices only");
 assert(page.includes("history.replaceState"),"Secret fragment must be removed from the address bar");
@@ -42,4 +48,4 @@ assert(page.includes('MB/s'),"Realtime throughput display missing");
 assert(page.includes('id="clear"') && page.includes('id="clearReceived"'),"One-tap cleanup controls missing");
 assert(page.includes('15*60*1000'),"Browser auto-purge missing");
 assert(page.includes('revokePreviewURLs()'),"Preview URL cleanup missing");
-console.log("PASS B Send v0.6 private multi-device web, E2E transfer, syntax, Turbo and cleanup");
+console.log("PASS B Send v0.6.1 private multi-device hidden link, masked pairing, Turbo and cleanup");
