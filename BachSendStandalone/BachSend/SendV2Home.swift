@@ -724,7 +724,7 @@ struct SendV2Home: View {
                     Text("File tối đa 1 GiB. Giữ B Send ở màn hình trước trong lúc truyền. Một số Wi-Fi công cộng chặn liên lạc giữa thiết bị.")
                         .font(.system(size: 11)).foregroundStyle(SendStyle.secondary)
                 }.sendGlass()
-                Text("B Send · v0.4 Hybrid (Preview) · Bách App")
+                Text("B Send · v0.5.3 Native Picker · Bách App")
                     .font(.system(size: 10)).foregroundStyle(SendStyle.secondary.opacity(0.75))
             }.padding(.horizontal, 19).padding(.top, 10)
         }
