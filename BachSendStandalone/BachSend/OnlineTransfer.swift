@@ -198,7 +198,12 @@ final class BSendOnlineModel: ObservableObject {
                 Task { @MainActor [weak self] in
                     guard let self, self.resumePingID == checkID else { return }
                     self.resumePingID = nil
-                    if error != nil { self.scheduleReconnect() }
+                    if error != nil {
+                        self.message = "WebSocket bị ngắt sau khi quay lại. Đang nối lại phiên cũ..."
+                        self.scheduleReconnect()
+                    } else {
+                        self.message = "WebSocket vẫn phản hồi sau \(self.lastBackgroundSeconds) giây chuyển ứng dụng."
+                    }
                 }
             }
             Task { [weak self] in
@@ -304,7 +309,6 @@ final class BSendOnlineModel: ObservableObject {
         reconnectTask?.cancel()
         reconnectTask = nil
         reconnectTries = 0
-        resumePingID = nil
         endTransferTime()
         uploadTask?.cancel()
         uploadTask = nil
