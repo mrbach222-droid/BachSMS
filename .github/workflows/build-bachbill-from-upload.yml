@@ -6,12 +6,14 @@ on:
     paths:
       - BachBill_v1.0.0_iOS_Source.zip
       - .github/workflows/build-bachbill-from-upload.yml
+      - BachBillPatches/**
   pull_request:
     branches:
       - main
     paths:
       - BachBill_v1.0.0_iOS_Source.zip
       - .github/workflows/build-bachbill-from-upload.yml
+      - BachBillPatches/**
   workflow_dispatch:
 jobs:
   build:
@@ -34,6 +36,7 @@ jobs:
             code=$1
             trap - EXIT
             set +e
+            cd "$GITHUB_WORKSPACE"
             if [ "$code" -eq 0 ] && [ -s "$GITHUB_WORKSPACE/dist/BachBill-v1.0.0-unsigned.ipa" ]; then
               {
                 echo "# BachBill IPA build: SUCCESS"
@@ -72,6 +75,14 @@ jobs:
           test -f BachBill_v1.0.0_iOS_Source.zip
           unzip -oq BachBill_v1.0.0_iOS_Source.zip -d build/BachBill
           cd build/BachBill
+          cp "$GITHUB_WORKSPACE/BachBillPatches/DashboardView.swift" App/DashboardView.swift
+          python3 - <<'PY'
+          from pathlib import Path
+          file = Path("App/ScanStore.swift")
+          old = file.read_text(encoding="utf-8")
+          if "import SwiftUI" not in old:
+              file.write_text("import SwiftUI\\n" + old, encoding="utf-8")
+          PY
           swift test 2>&1 | tee -a "$LOG"
           if ! command -v xcodegen >/dev/null; then
             brew install xcodegen 2>&1 | tee -a "$LOG"
@@ -80,7 +91,7 @@ jobs:
           xcodebuild -quiet -project BachBill.xcodeproj -scheme BachBill \
             -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' \
             -derivedDataPath "$RUNNER_TEMP/BachBill" \
-            CODE_SIGNING_ALLOWED=NO build 2>&1 | tee -a "$LOG"
+            CODE_SIGNING_ALLOWED=NO SWIFT_OPTIMIZATION_LEVEL=-Onone build 2>&1 | tee -a "$LOG"
           mkdir -p "$RUNNER_TEMP/bachbill-package/Payload"
           cp -R "$RUNNER_TEMP/BachBill/Build/Products/Release-iphoneos/BachBill.app" \
             "$RUNNER_TEMP/bachbill-package/Payload/"
