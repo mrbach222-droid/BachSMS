@@ -44,7 +44,8 @@ const script=page.match(/<script>([\s\S]*?)<\/script>/);
 assert(script, "Expected browser script");
 new Script(script[1],{filename:"browser.js"});
 assert(!page.includes("tối đa 50 MB"),"Old 50 MB cap must be removed");
-assert(page.includes("không cần chọn thư mục"),"Safari must not require a folder picker before receiving");
+assert(page.includes("Không cần chọn thư mục") || page.includes("không cần chọn thư mục"),
+       "Safari must not require a folder picker before receiving");
 assert(page.includes("showDirectoryPicker"),"Streaming file-save directory picker missing");
 assert(page.includes("createWritable"),"Browser must write received data to disk");
 assert(page.includes("file-progress"),"Bounded chunk-ACK protocol missing");
