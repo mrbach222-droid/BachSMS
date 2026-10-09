@@ -39,6 +39,9 @@ struct SendV2Home: View {
     @State private var photoItems: [PhotosPickerItem] = []
     @State private var copied = false
     @State private var removeAll = false
+    @State private var mediaSavingURL: URL?
+    @State private var mediaSaveResult = ""
+    @State private var showMediaSaveResult = false
 
     private let menu: [(String, String)] = [
         ("Chia sẻ", "arrow.up.right.square"),
@@ -70,9 +73,22 @@ struct SendV2Home: View {
         }
         .tint(SendStyle.accent)
         .preferredColorScheme(.dark)
-        .fileImporter(isPresented: $showFiles, allowedContentTypes: [.item], allowsMultipleSelection: true) { result in
+        .fileImporter(
+            isPresented: $showFiles,
+            allowedContentTypes: [
+                .item, .data, .content, .archive, .pdf, .image, .movie,
+                UTType(filenameExtension: "ipa", conformingTo: .data) ?? .data,
+                UTType(filenameExtension: "zip", conformingTo: .data) ?? .data
+            ],
+            allowsMultipleSelection: true
+        ) { result in
             switch result {
-            case .success(let urls): store.add(urls)
+            case .success(let urls):
+                if urls.isEmpty {
+                    store.message = "Chưa chọn file. Tích chọn tệp rồi nhấn Mở."
+                } else {
+                    store.add(urls)
+                }
             case .failure(let error): store.message = "Không thể chọn file: \(error.localizedDescription)"
             }
         }
@@ -94,6 +110,11 @@ struct SendV2Home: View {
             }
         } message: {
             Text("Chỉ xóa bản sao trong B Send, không xóa file gốc.")
+        }
+        .alert("Lưu vào ứng dụng Ảnh", isPresented: $showMediaSaveResult) {
+            Button("Đóng", role: .cancel) {}
+        } message: {
+            Text(mediaSaveResult)
         }
     }
 
@@ -343,6 +364,10 @@ struct SendV2Home: View {
                     }
                     .background(SendStyle.card, in: RoundedRectangle(cornerRadius: 12))
                 }
+                Text(store.message)
+                    .font(.system(size: 10))
+                    .foregroundStyle(SendStyle.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
                 if store.outgoing.isEmpty {
                     Label("Chưa chọn file. Bản thử nghiệm giới hạn 50 MB/file.",
                           systemImage: "doc.badge.plus")
@@ -388,7 +413,7 @@ struct SendV2Home: View {
                     .font(.system(size: 10))
                     .foregroundStyle(.orange)
                     .fixedSize(horizontal: false, vertical: true)
-                Text("Đổi ứng dụng hoặc khóa màn hình có thể ngắt phiên Online. Khi PC gửi file, mở tab Đã nhận để xem sau khi hoàn tất.")
+                Text("Khi iPhone vào nền, iOS có thể tạm ngưng WebSocket. B Send sẽ giữ phiên và tự kết nối lại khi mở lên. Để truyền file ổn định, hãy giữ app ở màn hình trước.")
                     .font(.system(size: 10))
                     .foregroundStyle(SendStyle.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -648,7 +673,8 @@ struct SendV2Home: View {
                         Image(systemName: "arrow.clockwise").font(.system(size: 14))
                     }
                 }
-                Text("File nhận qua mạng nội bộ được lưu trên iPhone.")
+                Text("File từ PC hoặc LAN được lưu trong B Send. Ảnh/video có thể lưu thêm vào thư viện Ảnh.")
+                    .fixedSize(horizontal: false, vertical: true)
                     .font(.system(size: 11)).foregroundStyle(SendStyle.secondary)
                 if store.incoming.isEmpty {
                     Label("Chưa có file được nhận", systemImage: "tray")
@@ -667,6 +693,20 @@ struct SendV2Home: View {
                                     .font(.system(size: 10)).foregroundStyle(SendStyle.secondary)
                             }
                             Spacer(minLength: 0)
+                            if BSendMediaLibrary.isSupported(file) {
+                                Button {
+                                    Task { await saveMediaToPhotos(file) }
+                                } label: {
+                                    if mediaSavingURL == file.url {
+                                        ProgressView().controlSize(.small)
+                                    } else {
+                                        Image(systemName: "photo.on.rectangle.angled")
+                                            .foregroundStyle(SendStyle.accent)
+                                    }
+                                }
+                                .disabled(mediaSavingURL != nil)
+                                .accessibilityLabel("Lưu \(file.name) vào Ảnh")
+                            }
                             ShareLink(item: file.url) {
                                 Image(systemName: "square.and.arrow.up")
                             }
@@ -680,6 +720,19 @@ struct SendV2Home: View {
         }
         .onAppear { store.refresh() }
     }
+    private func saveMediaToPhotos(_ file: SharedTransferFile) async {
+        guard mediaSavingURL == nil else { return }
+        mediaSavingURL = file.url
+        defer { mediaSavingURL = nil }
+        do {
+            try await BSendMediaLibrary.save(file)
+            mediaSaveResult = "Đã lưu \(file.name) vào thư viện Ảnh. File trong B Send vẫn được giữ nguyên."
+        } catch {
+            mediaSaveResult = "Chưa lưu được \(file.name): \(error.localizedDescription)"
+        }
+        showMediaSaveResult = true
+    }
+
     private var settingsPage: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 13) {
