@@ -505,8 +505,7 @@ final class BSendOnlineModel: ObservableObject {
             message = "Đã khôi phục phiên ghép nối an toàn với PC."
             autoResumeOutgoingIfPossible()
         case "file-start":
-            guard incomingFile == nil,
-                  let id = json["id"] as? String,
+            guard let id = json["id"] as? String,
                   let name = json["name"] as? String,
                   let length = json["size"] as? NSNumber else { return }
             let size = length.int64Value
