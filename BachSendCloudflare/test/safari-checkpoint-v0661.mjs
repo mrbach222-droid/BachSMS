@@ -125,11 +125,24 @@ try{
   owner.send(encryptedFrame(payload.subarray(i*blockLength,(i+1)*blockLength)));
  }
  const checkpointBytes=initialBlocks*blockLength;
- await page.waitForFunction(n=>{
-  const row=document.getElementById("incomingRow");
-  return row&&!row.classList.contains("hidden")&&
-    document.getElementById("incomingDetail").textContent.includes("768 KB");
- },null,{timeout:20000});
+ try{
+  await page.waitForFunction(()=>{
+   const row=document.getElementById("incomingRow");
+   return row&&!row.classList.contains("hidden")&&
+     document.getElementById("incomingDetail").textContent.includes("768 KB");
+  },null,{timeout:16000});
+ }catch(e){
+  const state=await page.evaluate(()=>({
+   state:document.getElementById("state")?.textContent,
+   detail:document.getElementById("incomingDetail")?.textContent,
+   percent:document.getElementById("incomingPercent")?.textContent,
+   error:document.getElementById("notice")?.textContent,
+   status:document.getElementById("status")?.textContent,
+   online:document.getElementById("peer")?.textContent
+  }));
+  console.log("CHECKPOINT WEBKIT ERROR",JSON.stringify({state,readyOffsets,errors,signaled}));
+  throw e;
+ }
  const checkpoint=await page.evaluate(async({room,id})=>{
   const database=await new Promise((resolve,reject)=>{
    const request=indexedDB.open("bsend.local-received.v066",2);
