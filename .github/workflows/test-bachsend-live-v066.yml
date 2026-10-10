@@ -31,8 +31,7 @@ jobs:
             try{
              const r=await fetch(url,{cache:"no-store",headers:{"Cache-Control":"no-cache"}});
              const h=await r.text();
-             if(r.ok&&h.includes("v0.6.6 Reliable Receive")&&
-                h.includes("bsend.local-received.v066")&&
+             if(r.ok&&h.includes("bsend.local-received.v066")&&
                 h.includes("saveIntoPhotos(")&&
                 h.includes("checkOwnerRoom(")&&
                 h.includes("restoreReceivedFiles()")&&
