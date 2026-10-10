@@ -1,0 +1,63 @@
+name: B Send v0.6.6.2 Cellular Stability Regression
+on:
+  push:
+    branches: [bachsend-v0662-5g-stability-hotfix]
+    paths:
+      - 'BachSendCloudflare/**'
+      - '.github/workflows/test-bachsend-cellular-v0662.yml'
+  workflow_dispatch:
+jobs:
+  cellular-safari:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    defaults:
+      run:
+        working-directory: BachSendCloudflare
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install Wrangler and WebKit
+        run: |
+          npm install --no-audit --no-fund
+          npm install --no-save playwright@1.58.2
+          npx playwright install --with-deps webkit
+      - name: Validate production-plus-5G bundle and ACK correctness
+        run: |
+          node --check src/page.js
+          node --check src/index.js
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import browserPage from './src/page.js';
+          const page=browserPage("");
+          assert(page.includes('const PART_META="partial_meta"'),"Must retain durable partial received chunks");
+          assert(page.includes('restoreReceivedFiles()'),"Received file list restore missing");
+          assert(page.includes('function checkOwnerRoom()'),"Owner reconnect polling missing");
+          assert(page.includes('function queueReconnect()'),"WebSocket automatic reconnect missing");
+          assert(page.includes('let targetWindow=speedMode.value==="turbo"?(cellular?32:96)'),"5G window tuning missing");
+          assert(page.includes('speedMode.value==="stable"?16:(cellular?16:32)'),"ACK window must never be under 16 chunks");
+          assert(page.includes('targetWindow=Math.max(16,Math.ceil(targetWindow/32)*16)'),"ACK backpressure must stay aligned to 16");
+          assert(page.includes('window.addEventListener("online"'),"Safari online recovery hook missing");
+          const windows=[16,32,48,64,96,128];
+          for(const target of windows) {
+            assert.equal(target % 16,0);
+            assert.equal(Math.max(16,Math.ceil(target/32)*16)%16,0);
+          }
+          console.log('PASS Safari durable file checkpoint, 5G window/ACK alignment, foreground recovery');
+          NODE
+          npx wrangler deploy --dry-run --outdir ./dist
+      - name: Local Cloudflare Worker and end-to-end Safari/WebKit
+        run: |
+          set -eu
+          npx wrangler dev --local --ip 127.0.0.1 --port 8787 >/tmp/bsend-cellular-v0662.log 2>&1 &
+          PID=$!
+          trap 'kill $PID 2>/dev/null || true' EXIT
+          for i in $(seq 1 45); do
+            if curl -fsS http://127.0.0.1:8787/api/health >/dev/null; then break; fi
+            sleep 2
+          done
+          node test/multi-device-v060.mjs || { cat /tmp/bsend-cellular-v0662.log; exit 1; }
+          node test/smart-resume-v064.mjs || { cat /tmp/bsend-cellular-v0662.log; exit 1; }
+          node test/safari-connect-v0641.mjs || { cat /tmp/bsend-cellular-v0662.log; exit 1; }
+          node test/safari-receive-v066.mjs || { cat /tmp/bsend-cellular-v0662.log; exit 1; }
