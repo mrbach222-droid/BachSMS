@@ -1,0 +1,48 @@
+name: Live B Send v0.6.6.1 Safari 5G Resume
+on:
+  push:
+    branches: [bachsend-v0661-5g-background-resume]
+    paths:
+      - '.github/workflows/test-bachsend-live-v0661.yml'
+  workflow_dispatch:
+jobs:
+  production:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: BachSendCloudflare
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install Safari WebKit test browser
+        run: |
+          npm install --no-audit --no-fund
+          npm install --no-save playwright@1.58.2
+          npx playwright install --with-deps webkit
+      - name: Wait for 5G checkpoint code on Cloudflare
+        run: |
+          node --input-type=module <<'NODE'
+          let good=false;
+          for(let i=0;i<55;i++){
+           const html=await fetch("https://bachsend-relay.mrbach222.workers.dev/",{cache:"no-store"}).then(r=>r.text());
+           if(html.includes("v0.6.6.1 5G Resume")&&
+              html.includes("persistCompletedCheckpoint")&&
+              html.includes("receiver-paused")&&
+              html.includes("partial_chunks")){
+             good=true;console.log("PASS production v0.6.6.1 receiver pause and checkpoint deployed");break;
+           }
+           await new Promise(r=>setTimeout(r,3000));
+          }
+          if(!good)process.exit(1);
+          NODE
+      - name: Real production WebKit first and remembered pairing
+        env:
+          BSEND_BASE: https://bachsend-relay.mrbach222.workers.dev
+        run: node test/safari-connect-v0641.mjs
+      - name: Real production WebKit resume, storage reload and verified hash
+        env:
+          BSEND_BASE: https://bachsend-relay.mrbach222.workers.dev
+        run: node test/safari-checkpoint-v0661.mjs
