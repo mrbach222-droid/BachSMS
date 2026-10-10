@@ -128,14 +128,21 @@ try{
  await page.waitForFunction(n=>{
   const row=document.getElementById("incomingRow");
   return row&&!row.classList.contains("hidden")&&
-    document.getElementById("incomingDetail").textContent.includes("768.0 KB");
+    document.getElementById("incomingDetail").textContent.includes("768 KB");
  },null,{timeout:20000});
- const checkpoint=await page.evaluate(async()=>{
-  const db=await receivedDatabase();
-  db.close();
-  return await readCheckpoint(room,fileId);
- });
- assert.equal(checkpoint?.meta.got,checkpointBytes,"16 chunks must be committed before ACK");
+ const checkpoint=await page.evaluate(async({room,id})=>{
+  const database=await new Promise((resolve,reject)=>{
+   const request=indexedDB.open("bsend.local-received.v066",2);
+   request.onsuccess=()=>resolve(request.result);request.onerror=()=>reject(request.error);
+  });
+  const record=await new Promise((resolve,reject)=>{
+   const req=database.transaction("partial_meta","readonly")
+     .objectStore("partial_meta").get(room+":"+id);
+   req.onsuccess=()=>resolve(req.result);req.onerror=()=>reject(req.error);
+  });
+  database.close();return record;
+ },{room:info.room,id:fileId});
+ assert.equal(checkpoint?.got,checkpointBytes,"16 chunks must be committed before ACK");
  console.log("PASS WebKit Safari committed "+checkpointBytes+" encrypted bytes to IndexedDB");
  await page.close();
  await new Promise(r=>setTimeout(r,450));
@@ -156,11 +163,21 @@ try{
  await page.waitForFunction(()=>document.querySelector('#received .file[data-name="mobile-5g.bin"]')!==null,
   null,{timeout:18000});
  const saved=await page.evaluate(async()=>{
-  const data=await receivedTransaction("readonly",s=>s.get("mobile-5g-safari-checkpoint-test"));
-  return {length:data?.blob.size,bytes:data?.blob?new Uint8Array(await data.blob.arrayBuffer()):null};
+  const db=await new Promise((resolve,reject)=>{
+   const req=indexedDB.open("bsend.local-received.v066",2);
+   req.onsuccess=()=>resolve(req.result);req.onerror=()=>reject(req.error);
+  });
+  const item=await new Promise((resolve,reject)=>{
+   const req=db.transaction("files","readonly").objectStore("files")
+     .get("mobile-5g-safari-checkpoint-test");
+   req.onsuccess=()=>resolve(req.result);req.onerror=()=>reject(req.error);
+  });
+  db.close();
+  const sha=new Uint8Array(await crypto.subtle.digest("SHA-256",await item.blob.arrayBuffer()));
+  return {length:item.blob.size,sha:Array.from(sha,n=>n.toString(16).padStart(2,"0")).join("")};
  });
  assert.equal(saved.length,payload.length);
- assert(Buffer.from(saved.bytes).equals(payload),"Restored Safari file must match original bytes");
+ assert.equal(saved.sha,payloadSHA,"Restored Safari file must match SHA-256");
  assert.equal(errors.length,0,JSON.stringify(errors));
  console.log("PASS WebKit tab close/reopen resumed "+checkpointBytes+
    " bytes and verified full "+payload.length+" byte SHA256 file");
