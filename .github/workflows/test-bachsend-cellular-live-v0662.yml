@@ -1,0 +1,58 @@
+name: Live B Send v0.6.6.2 Safari Cellular
+on:
+  push:
+    branches: [bachsend-v0662-5g-stability-hotfix]
+    paths:
+      - '.github/workflows/test-bachsend-cellular-live-v0662.yml'
+  workflow_dispatch:
+jobs:
+  live-safari:
+    runs-on: ubuntu-latest
+    timeout-minutes: 16
+    defaults:
+      run:
+        working-directory: BachSendCloudflare
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install WebKit browser
+        run: |
+          npm install --no-audit --no-fund
+          npm install --no-save playwright@1.58.2
+          npx playwright install --with-deps webkit
+      - name: Verify current Cloudflare v0.6.6.2 before tests
+        run: |
+          node --input-type=module <<'NODE'
+          const base='https://bachsend-relay.mrbach222.workers.dev/';
+          let ok=false;
+          for(let i=0;i<60;i++){
+            try{
+              const response=await fetch(base,{cache:'no-store'});
+              const body=await response.text();
+              if(response.ok &&
+                body.includes('cellular?16:32') &&
+                body.includes('const PART_META="partial_meta"') &&
+                body.includes('restoreReceivedFiles()') &&
+                body.includes('window.addEventListener("online"')){
+                console.log('PASS Cloudflare production B Send v0.6.6.2, persistent receipts & 5G throttle');ok=true;break;
+              }
+              console.log('Waiting for Cloudflare deploy...');
+            }catch(e){console.log(e.message)}
+            await new Promise(r=>setTimeout(r,3000));
+          }
+          if(!ok)process.exit(1);
+          NODE
+      - name: Live encrypted rooms and SHA-256 resume
+        env:
+          BSEND_BASE: https://bachsend-relay.mrbach222.workers.dev
+        run: |
+          node test/multi-device-v060.mjs
+          node test/smart-resume-v064.mjs
+      - name: Live WebKit Safari personal pairing and offline file persistence
+        env:
+          BSEND_BASE: https://bachsend-relay.mrbach222.workers.dev
+        run: |
+          node test/safari-connect-v0641.mjs
+          node test/safari-receive-v066.mjs
