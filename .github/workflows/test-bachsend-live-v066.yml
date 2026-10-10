@@ -1,4 +1,4 @@
-name: Live B Send v0.6.6 Reliable Safari Receive
+name: Live B Send v0.6.6 Safari Offline Recovery
 on:
   push:
     branches: [bachsend-v066-reliable-receive-media]
@@ -35,7 +35,9 @@ jobs:
                 h.includes("bsend.local-received.v066")&&
                 h.includes("saveIntoPhotos(")&&
                 h.includes("checkOwnerRoom(")&&
-                h.includes("restoreReceivedFiles()")){
+                h.includes("restoreReceivedFiles()")&&
+                h.includes("Safari quota is shared")&&
+                !h.includes("Dọn dữ liệu xem trước sau 15 phút")){
                ready=true;console.log("PASS Cloudflare v0.6.6 reliable receive deployed");break;
              }
             }catch(e){console.log(e.message)}
@@ -43,7 +45,7 @@ jobs:
           }
           if(!ready)process.exit(1);
           NODE
-      - name: Validate live Safari WebKit encrypted photo preview and file restore
+      - name: Verify live Safari photo persists while iPhone owner is offline and page reloads
         env:
           BSEND_BASE: https://bachsend-relay.mrbach222.workers.dev
         run: node test/safari-receive-v066.mjs
