@@ -53,3 +53,7 @@ jobs:
         env:
           BSEND_BASE: https://bachsend-relay.mrbach222.workers.dev
         run: node test/multi-device-v060.mjs
+      - name: Verify live iOS stale owner takeover and Safari guest continuity
+        env:
+          BSEND_BASE: https://bachsend-relay.mrbach222.workers.dev
+        run: node test/owner-reconnect-v066.mjs
