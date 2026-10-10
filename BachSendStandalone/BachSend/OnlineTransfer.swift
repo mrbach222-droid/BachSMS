@@ -67,6 +67,10 @@ final class BSendOnlineModel: ObservableObject {
     private var pendingProgressId: String?
     private var progressAcknowledged: Int64 = 0
     private var remoteCancelledTransfer = false
+    // Safari sends an encrypted pause hint before iOS suspends its tab.
+    // This does not keep Safari running in background; it prevents sending
+    // unacknowledged chunks until the recipient becomes active again.
+    private var receiverSuspended = false
     private var awaitingReceipt: String?
     private var acknowledgedReceipt: String?
     var didReceive: (() -> Void)?
@@ -363,6 +367,7 @@ final class BSendOnlineModel: ObservableObject {
         readyID = nil
         readyOffset = nil
         ackVerified = false
+        receiverSuspended = false
         sharedKey = nil
         pendingPCPublicKey = nil
         trustedChallenge = nil
@@ -618,6 +623,13 @@ final class BSendOnlineModel: ObservableObject {
                 cleanupIncoming()
                 message = "Không thể hoàn thành file nhận: \(error.localizedDescription)"
             }
+        case "receiver-paused":
+            receiverSuspended = true
+            message = "Safari đang ở nền. Tạm dừng gửi, giữ file để tiếp tục khi mở web."
+        case "receiver-resumed":
+            receiverSuspended = false
+            message = "Safari đã mở lại. Tiếp tục truyền file."
+            autoResumeOutgoingIfPossible()
         case "file-ready":
             guard let id = json["id"] as? String,
                   let offset = json["offset"] as? NSNumber,
@@ -752,6 +764,7 @@ final class BSendOnlineModel: ObservableObject {
                     self.pendingProgressId = id
                     self.progressAcknowledged = 0
                     self.remoteCancelledTransfer = false
+                    self.receiverSuspended = false
                     self.readyID = nil
                     self.readyOffset = nil
                     try await self.sendControl([
@@ -792,7 +805,23 @@ final class BSendOnlineModel: ObservableObject {
                         (self.turboMode == "Ổn định" ? 16 : 32)
                     var sent = offset
                     var chunksSent = 0
-                    while let chunk = try handle.read(upToCount:Self.chunkSize), !chunk.isEmpty {
+                    while sent < file.size {
+                        // iOS Safari will suspend JavaScript and encrypted ACK
+                        // processing in background. Do not flood its socket.
+                        while self.receiverSuspended {
+                            try Task.checkCancellation()
+                            guard marker == self.sessionMarker, self.peerOnline else {
+                                throw NSError(domain:"BSend",code:5,userInfo:[
+                                    NSLocalizedDescriptionKey:"Safari đang ở nền, sẽ Smart Resume sau khi kết nối lại."
+                                ])
+                            }
+                            try await Task.sleep(for:.milliseconds(250))
+                        }
+                        guard let chunk = try handle.read(upToCount:Self.chunkSize), !chunk.isEmpty else {
+                            throw NSError(domain:"BSend",code:17,userInfo:[
+                                NSLocalizedDescriptionKey:"File gốc bị thiếu dữ liệu trong lúc truyền."
+                            ])
+                        }
                         try Task.checkCancellation()
                         if self.remoteCancelledTransfer {
                             throw NSError(domain:"BSend",code:14,userInfo:[
@@ -822,6 +851,13 @@ final class BSendOnlineModel: ObservableObject {
                             var attempts=0
                             while self.progressAcknowledged < sent {
                                 try Task.checkCancellation()
+                                if self.receiverSuspended {
+                                    // Keep the same 90-second timeout budget
+                                    // while Safari is actually receiving, not
+                                    // while it is suspended by iOS.
+                                    try await Task.sleep(for:.milliseconds(250))
+                                    continue
+                                }
                                 guard marker == self.sessionMarker,self.peerOnline,
                                       !self.remoteCancelledTransfer else {
                                     throw NSError(domain:"BSend",code:5,userInfo:[
