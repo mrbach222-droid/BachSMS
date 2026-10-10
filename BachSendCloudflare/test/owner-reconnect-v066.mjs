@@ -39,8 +39,8 @@ const delivered=[];
 replacement.addEventListener("message",e=>{if(typeof e.data==="string"){try{const m=JSON.parse(e.data);if(m.type==="enc")delivered.push(m.blob)}catch{}}});
 guest.send(JSON.stringify({type:"enc",blob:marker}));
 await until(()=>delivered.includes(marker),"guest message through replacement owner");
-const online=await fetch(base+"/api/room/"+sess.room+"/presence").then(r=>r.json()).catch(()=>null);
-if(online)assert.equal(online.ownerOnline,true);
+// Forwarding after re-authenticated owner takeover proves the room is online.
+// /presence is internal to the Durable Object and has no public HTTP route.
 console.log("PASS native iPhone owner WebSocket reconnect replaces stale server socket without HTTP 409");
 console.log("PASS Safari guest stays connected and encrypted relay still forwards frames after takeover");
 for(const ws of [oldOwner,replacement,guest])if(ws.readyState===WebSocket.OPEN)ws.close();
