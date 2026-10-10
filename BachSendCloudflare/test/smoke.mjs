@@ -96,4 +96,15 @@ assert(page.includes("restoreReceivedFiles()") && page.includes("purgeStoredRece
 assert(page.includes("checkOwnerRoom()") && page.includes("queueReconnect()"),
        "Web must reconnect after background/room rotation without manual reload");
 assert(!page.includes("ws.close();\n    },18000)"),"Do not force close a healthy socket on iOS background");
-console.log("PASS B Send v0.6.6 Safari persistent received files, Photos preview, auto reconnect, Smart Resume SHA-256");
+assert(page.includes('indexedDB.open(RECEIVED_DB,2)') &&
+       page.includes('const PART_META="partial_meta",PART_CHUNKS="partial_chunks"'),
+       "Safari checkpoint database must be upgraded transactionally");
+assert(page.includes('await appendCheckpoint(incoming)') &&
+       page.includes('await control({type:"file-progress",id:incoming.id,received:incoming.got})'),
+       "Encrypted ACK must not advance beyond durable checkpoint");
+assert(page.includes('recoveredPartial(room,frame.id,safeName,frame.size,expectedSHA)'),
+       "Safari must restore incomplete file from storage on reloading tab");
+assert(page.includes('receiver-paused') && page.includes('receiver-resumed') &&
+       page.includes('signalVisibility()'),
+       "Safari must signal pause in background and resume on foreground");
+console.log("PASS B Send v0.6.6.1 5G Safari pause/resume, disk checkpoints, Photos and Smart Resume");
