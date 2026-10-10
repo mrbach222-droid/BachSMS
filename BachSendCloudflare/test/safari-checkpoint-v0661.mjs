@@ -205,8 +205,25 @@ try{
  await page.close();
  await new Promise(r=>setTimeout(r,350));
  page=await connectSafari(base+"/","after-complete");
- await page.waitForFunction(()=>document.querySelector('#received .file[data-name="mobile-5g.bin"]')!==null,
-  null,{timeout:18000});
+ try{
+  await page.waitForFunction(()=>document.querySelector('#received .file[data-name="mobile-5g.bin"]')!==null,
+   null,{timeout:14000});
+ }catch(e){
+  const data=await page.evaluate(async()=>{
+   const cacheNames=await caches.keys();
+   const cache=await caches.open("bsend.local-received-cache.v066");
+   const keys=await cache.keys();
+   const index=localStorage.getItem("bsend.local-received-index.v066");
+   return {
+     index,cacheNames,cacheKeys:keys.map(x=>x.url),
+     received:[...document.querySelectorAll("#received .file")].map(x=>x.dataset.name),
+     notice:document.getElementById("notice")?.textContent,
+     state:document.getElementById("state")?.textContent
+   };
+  });
+  console.log("COMPLETED RESTORE DIAGNOSTIC",JSON.stringify({data,errors}));
+  throw e;
+ }
  assert.equal(errors.length,0,JSON.stringify(errors));
  console.log("PASS WebKit tab close/reopen resumed "+checkpointBytes+
    " bytes, saved completed receipt survives another reload, verified "+payload.length+" byte SHA256 file");
