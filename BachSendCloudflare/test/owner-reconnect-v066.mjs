@@ -26,9 +26,9 @@ const sess=session.body;
 const code=await fetch(base+"/api/code/"+sess.code).then(r=>r.json());
 const guest=await connect(base.replace(/^http:/,"ws:").replace(/^https:/,"wss:")+
  "/api/room/"+sess.room+"/ws?role=guest&token="+code.guestToken);
-let oldOwner=await connect(sess.ownerWebSocketURL);
 const messages=[];
 guest.addEventListener("message",e=>{if(typeof e.data==="string"){try{messages.push(JSON.parse(e.data))}catch{}}});
+let oldOwner=await connect(sess.ownerWebSocketURL);
 await until(()=>messages.some(m=>m.type==="peer"&&m.online),"initial owner");
 const replacement=await connect(sess.ownerWebSocketURL);
 await until(()=>messages.some(m=>m.type==="peer"&&m.online),"replacement owner");
