@@ -186,12 +186,28 @@ try{
    req.onsuccess=()=>resolve(req.result);req.onerror=()=>reject(req.error);
   });
   db.close();
-  const sha=new Uint8Array(await crypto.subtle.digest("SHA-256",await item.blob.arrayBuffer()));
-  return {length:item.blob.size,sha:Array.from(sha,n=>n.toString(16).padStart(2,"0")).join("")};
+  let blob=item?.blob;
+  let store="IndexedDB";
+  if(!blob&&"caches" in window){
+   // WebKit supports ArrayBuffer checkpoints, but it may reject Blob writes
+   // to IndexedDB; completed files fall back to Cache Storage.
+   const cache=await caches.open("bsend.local-received-cache.v066");
+   const response=await cache.match(location.origin+"/__bsend_local_receipt__/"+encodeURIComponent("mobile-5g-safari-checkpoint-test"));
+   if(response){blob=await response.blob();store="Cache Storage"}
+  }
+  if(!blob)throw Error("Completed file missing from BOTH local stores");
+  const sha=new Uint8Array(await crypto.subtle.digest("SHA-256",await blob.arrayBuffer()));
+  return {store,length:blob.size,sha:Array.from(sha,n=>n.toString(16).padStart(2,"0")).join("")};
  });
  assert.equal(saved.length,payload.length);
  assert.equal(saved.sha,payloadSHA,"Restored Safari file must match SHA-256");
+ console.log("PASS completed file persisted in browser "+saved.store+" (SHA-256 matched)");
+ await page.close();
+ await new Promise(r=>setTimeout(r,350));
+ page=await connectSafari(base+"/","after-complete");
+ await page.waitForFunction(()=>document.querySelector('#received .file[data-name="mobile-5g.bin"]')!==null,
+  null,{timeout:18000});
  assert.equal(errors.length,0,JSON.stringify(errors));
  console.log("PASS WebKit tab close/reopen resumed "+checkpointBytes+
-   " bytes and verified full "+payload.length+" byte SHA256 file");
+   " bytes, saved completed receipt survives another reload, verified "+payload.length+" byte SHA256 file");
 }finally{await browser.close();owner.close();}
