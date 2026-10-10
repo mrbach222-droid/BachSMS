@@ -159,9 +159,20 @@ export class TransferRoom extends DurableObject {
     if (!expiration || expiration <= Date.now()) return result({ error: "expired" }, 410);
     const expected = await this.ctx.storage.get(role === "owner" ? "ownerHash" : "guestHash");
     if (await hashed(token) !== expected) return result({ error: "unauthorized" }, 401);
-    if (this.ctx.getWebSockets().some(ws =>
-      ws.deserializeAttachment()?.role === role && ws.readyState === 1))
-      return result({ error: "role_connected" }, 409);
+    const existing = this.ctx.getWebSockets().filter(ws =>
+      ws.deserializeAttachment()?.role === role && ws.readyState === 1);
+    // The *same owner token* may be used to recover a suspended iOS app.
+    // iOS sometimes leaves a stale WebSocket visible to Durable Objects
+    // for a while: returning 409 prevents every retry and strands Safari.
+    // Never permit a second simultaneous owner: atomically close stale
+    // sockets before accepting the replacement authenticated socket.
+    // Guest connections stay exclusive to avoid one linked PC evicting another.
+    if (existing.length) {
+      if (role !== "owner") return result({ error: "role_connected" }, 409);
+      for (const previous of existing) {
+        try { previous.close(4001, "Owner reconnect takeover"); } catch {}
+      }
+    }
     const pair = new WebSocketPair();
     const [client, server] = Object.values(pair);
     this.ctx.acceptWebSocket(server);
@@ -205,6 +216,12 @@ export class TransferRoom extends DurableObject {
 
   async webSocketClose(ws) {
     const role = ws.deserializeAttachment()?.role;
+    // Do not tell Safari "iPhone offline" for a stale socket whose role
+    // has already been taken over by its authenticated replacement.
+    const replacement = this.ctx.getWebSockets().some(peer =>
+      peer !== ws && peer.readyState === 1 &&
+      peer.deserializeAttachment()?.role === role);
+    if (replacement) return;
     const other = role === "owner" ? "guest" : "owner";
     for (const peer of this.ctx.getWebSockets()) {
       if (peer !== ws && peer.readyState === 1 &&
