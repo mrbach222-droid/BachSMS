@@ -185,9 +185,17 @@ try{
      .get("mobile-5g-safari-checkpoint-test");
    req.onsuccess=()=>resolve(req.result);req.onerror=()=>reject(req.error);
   });
-  db.close();
   let blob=item?.blob;
   let store="IndexedDB";
+  if(!blob&&item?.partsRef){
+   const blocks=await new Promise((resolve,reject)=>{
+    const req=db.transaction("partial_chunks","readonly").objectStore("partial_chunks")
+      .getAll(IDBKeyRange.bound(item.partsRef+":",item.partsRef+";"));
+    req.onsuccess=()=>resolve(req.result);req.onerror=()=>reject(req.error);
+   });
+   blob=new Blob(blocks.map(b=>b.bytes?new Blob([b.bytes]):b.blob),{type:"application/octet-stream"});
+   store="IndexedDB checkpoints";
+  }
   if(!blob&&"caches" in window){
    // WebKit supports ArrayBuffer checkpoints, but it may reject Blob writes
    // to IndexedDB; completed files fall back to Cache Storage.
@@ -195,6 +203,7 @@ try{
    const response=await cache.match(location.origin+"/__bsend_local_receipt__/"+encodeURIComponent("mobile-5g-safari-checkpoint-test"));
    if(response){blob=await response.blob();store="Cache Storage"}
   }
+  db.close();
   if(!blob)throw Error("Completed file missing from BOTH local stores");
   const sha=new Uint8Array(await crypto.subtle.digest("SHA-256",await blob.arrayBuffer()));
   return {store,length:blob.size,sha:Array.from(sha,n=>n.toString(16).padStart(2,"0")).join("")};
