@@ -133,6 +133,15 @@ try{
   });
  },null,{timeout:12000});
  console.log("PASS Safari received image preview, SHA256 verified and IndexedDB durable save");
+ // Simulate iPhone being sent to Home and its WebSocket being suspended.
+ // The user must still see all VERIFIED files when Safari reconnects/reloads.
+ owner.close();
+ await page.waitForFunction(()=>{
+  return document.getElementById("peer")?.textContent.includes("Đang đợi iPhone mở lại B Send");
+ },null,{timeout:12000});
+ assert.equal(await page.locator('#received .file[data-name="test-photo.png"]').count(),1,
+              "Owner going offline must never delete completed received files");
+ console.log("PASS Safari received file remains available when iPhone owner disconnects");
  console.log("BEFORE RELOAD LOCAL MEDIA",await page.evaluate(async()=>({
   origin:location.origin,
   index:localStorage.getItem("bsend.local-received-index.v066"),
@@ -166,8 +175,8 @@ try{
  }
  await page.getByRole("button",{name:"Xem"}).first().click();
  await page.locator("#previewModal:not(.hidden) img").waitFor();
- console.log("PASS Safari finished-file persists across page reload without cloud storage");
+ console.log("PASS Safari completed file survives reload while iPhone remains offline");
  await page.locator("#previewClose").click();
  assert.equal(errors.length,0,JSON.stringify(errors));
- console.log("PASS Safari/WebKit remembered iPhone, media preview and completed-file persistence");
+ console.log("PASS Safari/WebKit authenticated receiver, preview & persistent local files with offline iPhone");
 }finally{await context.close();await rm(profile,{recursive:true,force:true});owner.close();}
