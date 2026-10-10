@@ -216,8 +216,11 @@ final class BSendOnlineModel: ObservableObject {
         endTransferTime()
         guard ownerURL != nil, shareURL != nil else { return }
         if let expiry, Date() >= expiry {
+            // Device identity and its private link are stable. A previously
+            // enabled owner can refresh an expired 4h room on foreground;
+            // the paired web browser will discover it without re-pasting.
             stop(clearStatus: false)
-            message = "Phiên đã hết hạn. Hãy tạo mã mới."
+            start()
             return
         }
         if connected, let socket {
@@ -272,8 +275,10 @@ final class BSendOnlineModel: ObservableObject {
     private func reconnectNow() {
         guard let ownerURL, mayReconnectInCurrentState else { return }
         if let expiry, Date() >= expiry {
+            let wasInBackground = isInBackground
             stop(clearStatus: false)
-            message = "Phiên đã hết hạn. Tạo mã mới để ghép nối."
+            if !wasInBackground { start() }
+            else { message = "Phiên đã hết hạn khi iOS tạm ngưng. Mở lại B Send sẽ tạo phiên Online mới." }
             return
         }
         sessionMarker = UUID()
