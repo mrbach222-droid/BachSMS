@@ -110,6 +110,52 @@ internal static class MbReportTemplates {
         return note;
     }
 }
+// Registered on the main STA thread: Excel may temporarily reject COM calls while a
+// dropdown/editor/modal dialog is active. The OLE message filter retries the *same*
+// rejected COM request; no write/report transaction is replayed wholesale.
+internal static class ExcelComBusyFilter {
+    [ComImport,Guid("00000016-0000-0000-C000-000000000046"),InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    public interface IOleMessageFilter {
+        [PreserveSig] int HandleInComingCall(int type,IntPtr task,int ticks,IntPtr info);
+        [PreserveSig] int RetryRejectedCall(IntPtr task,int ticks,int rejection);
+        [PreserveSig] int MessagePending(IntPtr task,int ticks,int pending);
+    }
+    sealed class Filter:IOleMessageFilter {
+        public int HandleInComingCall(int type,IntPtr task,int ticks,IntPtr info){return 0;}
+        public int RetryRejectedCall(IntPtr task,int ticks,int rejection){
+            // SERVERCALL_REJECTED and SERVERCALL_RETRYLATER; do not retry forever.
+            if((rejection==1||rejection==2)&&ticks<8500)return 180;
+            return -1;
+        }
+        public int MessagePending(IntPtr task,int ticks,int pending){return 2;}
+    }
+    [DllImport("ole32.dll")] static extern int CoRegisterMessageFilter(IOleMessageFilter current,out IOleMessageFilter previous);
+    static IOleMessageFilter previous; static IOleMessageFilter registered;
+    public static void Install(){
+        registered=new Filter();
+        int hr=CoRegisterMessageFilter(registered,out previous);
+        if(hr<0)Marshal.ThrowExceptionForHR(hr);
+    }
+    public static void Remove(){
+        if(registered==null)return;
+        IOleMessageFilter ignored;
+        CoRegisterMessageFilter(previous,out ignored);registered=null;previous=null;
+    }
+    public static bool IsBusy(Exception ex){
+        COMException com=ex as COMException;
+        return com!=null && (com.ErrorCode==unchecked((int)0x80010001)||com.ErrorCode==unchecked((int)0x8001010A));
+    }
+    public static T RetryRead<T>(Func<T> get){
+        // The message filter retries most COM calls internally. This covers the
+        // exceptional case where Excel returns BUSY despite the OLE filter.
+        for(int i=0;;i++)try{return get();}
+        catch(Exception ex){
+            if(!IsBusy(ex)||i>=5)throw;
+            System.Threading.Thread.Sleep(180+i*100);
+        }
+    }
+}
+
 internal sealed class ExcelStore: IDisposable {
     dynamic xl,book,sheet;bool ownExcel;
     public string PathName {get;private set;}
@@ -311,6 +357,7 @@ internal sealed class ReportWindow:Form{
         }
         scenarios.SelectedIndexChanged+=delegate{ApplyScenario(scenarios.SelectedIndex,phone);};
         scenarios.SelectedIndex=1;
+        Shown+=delegate{TopMost=true;BringToFront();Activate();};
         save.Click+=delegate{ Save();};
         Resize+=delegate{save.Left=ClientSize.Width-save.Width-28;};
     }
@@ -365,7 +412,7 @@ internal sealed class ReportWindow:Form{
 internal sealed class CRM:Form {
     ExcelStore store;ExcelRowDock dock;readonly DataGridView grid=new DataGridView();readonly TextBox search=new TextBox();readonly Label summary=new Label(),fileLabel=new Label();readonly Timer queueTimer=new Timer(); readonly Dictionary<int,Customer> displayed=new Dictionary<int,Customer>();
     public CRM(){
-        Text="BÁCH CRM EXCEL  ·  Sacombank  ·  v0.7";Size=new Size(1370,770);MinimumSize=new Size(1040,650);Font=new Font("Segoe UI",9);BackColor=Color.FromArgb(245,248,252);StartPosition=FormStartPosition.CenterScreen;
+        Text="BÁCH CRM EXCEL  ·  Sacombank  ·  v0.8";Size=new Size(1370,770);MinimumSize=new Size(1040,650);Font=new Font("Segoe UI",9);BackColor=Color.FromArgb(245,248,252);StartPosition=FormStartPosition.CenterScreen;
         var header=new Panel{Dock=DockStyle.Top,Height=74,BackColor=Color.FromArgb(22,40,69)};Controls.Add(header);
         header.Controls.Add(new Label{Text="BÁCH CRM EXCEL",Left=22,Top=13,ForeColor=Color.White,Font=new Font("Segoe UI",18,FontStyle.Bold),AutoSize=true});
         header.Controls.Add(new Label{Text="Quản lý danh sách · CALL EyeBeam · Báo cáo trực tiếp vào Excel · Độc lập FPT",Left=23,Top=49,ForeColor=Color.FromArgb(188,205,225),AutoSize=true});
@@ -389,8 +436,8 @@ internal sealed class CRM:Form {
     void AddCol(string name,string title,int width){grid.Columns.Add(new DataGridViewTextBoxColumn{Name=name,HeaderText=title,Width=width,SortMode=DataGridViewColumnSortMode.NotSortable});}
     void ChooseFile(){using(var d=new OpenFileDialog{Filter="Excel (*.xlsx)|*.xlsx",Title="Chọn file Excel Sacombank"})if(d.ShowDialog(this)==DialogResult.OK)Open(d.FileName);}
     void Open(string path){if(!File.Exists(path))return;
-        try{ExcelStore next=new ExcelStore(path);if(dock!=null&&!dock.IsDisposed){dock.Close();dock=null;} if(store!=null)store.Dispose();store=next;Settings.WorkbookPath=path;fileLabel.Text="FILE ĐANG DÙNG: "+path+(store.ReadOnly?"     [CHỈ ĐỌC]":"");RefreshRows();}
-        catch(Exception e){MessageBox.Show(this,"Không mở được file Excel: "+e.Message+"\n\nYêu cầu máy cài Microsoft Excel. Đóng những file bị khóa nếu cần.");}
+        try{ExcelStore next=ExcelComBusyFilter.RetryRead(()=>new ExcelStore(path));if(dock!=null&&!dock.IsDisposed){dock.Close();dock=null;} if(store!=null)store.Dispose();store=next;Settings.WorkbookPath=path;fileLabel.Text="FILE ĐANG DÙNG: "+path+(store.ReadOnly?"     [CHỈ ĐỌC]":"");RefreshRows();}
+        catch(Exception e){MessageBox.Show(this,"Không mở được file Excel: "+e.Message+"\n\nNếu Excel đang bận: bấm Esc để đóng danh sách/thoát chỉnh sửa ô, chờ vài giây rồi TẢI LẠI. CRM đã tự thử lại các lỗi COM tạm thời.");}
     }
     GridPosition CaptureGridPosition(){
         var p=new GridPosition();
@@ -480,7 +527,8 @@ internal sealed class CRM:Form {
                 string cif=payload[0],contract=payload[1],phone=payload[2];long ticks;
                 if(!long.TryParse(payload[3],out ticks)||Math.Abs((DateTime.UtcNow-new DateTime(ticks,DateTimeKind.Utc)).TotalMinutes)>120)continue;
                 var hits=store.Customers.Where(x=>x.Cif==cif&&x.Contract==contract).ToList();if(hits.Count!=1){MessageBox.Show(this,"Cuộc gọi hoàn tất nhưng không tìm đúng CIF/HĐ trong Excel. Không mở báo cáo nhầm khách.");continue;}
-                WindowState=FormWindowState.Normal;Activate();OpenReport(hits[0],phone);
+                WindowState=FormWindowState.Normal;
+                Show();BringToFront();Activate();OpenReport(hits[0],phone);
             }catch(Exception e){try{File.Move(f,f+".failed");}catch{}MessageBox.Show(this,"Lỗi nhận sự kiện kết thúc cuộc gọi: "+e.Message);}
         }
     }
@@ -522,5 +570,11 @@ internal sealed class ExcelRowDock:Form {
     }
 }
 internal static class Program {
-    [STAThread]static void Main(string[] args){Application.EnableVisualStyles();Application.SetCompatibleTextRenderingDefault(false);Application.Run(new CRM());}
+    [STAThread]static void Main(string[] args){
+        Application.EnableVisualStyles();Application.SetCompatibleTextRenderingDefault(false);
+        try{
+            ExcelComBusyFilter.Install();
+            Application.Run(new CRM());
+        }finally{ExcelComBusyFilter.Remove();}
+    }
 }
