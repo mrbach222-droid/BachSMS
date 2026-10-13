@@ -143,7 +143,7 @@ internal sealed class ExcelStore: IDisposable {
             }else prepared[k]=val;
         }
         // Merge all previous AK notes before writing; thus same-CIF contracts share the exact history.
-        string history=ReportLogic.MergeHistory(targets.Select(x=>Util.S(sheet.Cells[x.Row,37].Value2)), d.Text[7]);
+        string history=ReportLogic.MergeHistory(targets.Select(x=>Util.S((object)sheet.Cells[x.Row,37].Value2)), d.Text[7]);
         if(!String.IsNullOrWhiteSpace(history))prepared[7]=history;
 
         string directory=System.IO.Path.Combine(System.IO.Path.GetDirectoryName(PathName),"BachCRMExcel_Backup");Directory.CreateDirectory(directory);
