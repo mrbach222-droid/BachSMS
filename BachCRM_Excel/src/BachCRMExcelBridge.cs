@@ -62,7 +62,7 @@ internal sealed class BachCRMExcelBridge : Form {
     IntPtr calibratedWindow=IntPtr.Zero;
     double rx=-1,ry=-1;
     int calibrateTicks=0;
-    string CalibrationPath {get {var dir=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"BachCRM");Directory.CreateDirectory(dir);return Path.Combine(dir,"eyebeam_calibration.txt");}}
+    string CalibrationPath {get {var dir=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"BachCRMExcel");Directory.CreateDirectory(dir);return Path.Combine(dir,"eyebeam_calibration.txt");}}
     readonly TextBox number=new TextBox(), trace=new TextBox();
     readonly Label status=new Label(), state=new Label();
     readonly Button import=new Button(), toEyeBeam=new Button(), openHelper=new Button();
