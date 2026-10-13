@@ -1,0 +1,37 @@
+name: Build Bách CRM Mobile unsigned IPA (isolated)
+on:
+  push:
+    branches:
+      - bachcrm-mobile-unsigned-build-20261013
+    paths:
+      - 'BachCRM_Mobile/**'
+      - '.github/workflows/build-bachcrm-mobile-isolated.yml'
+  workflow_dispatch:
+jobs:
+  ios-unsigned:
+    runs-on: macos-14
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check Xcode
+        run: xcodebuild -version
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - name: Generate iOS project
+        working-directory: BachCRM_Mobile/ios
+        run: xcodegen generate
+      - name: Build unsigned IPA
+        working-directory: BachCRM_Mobile/ios
+        run: |
+          set -euo pipefail
+          xcodebuild -project BachCRMMobile.xcodeproj -scheme BachCRMMobile -configuration Release -sdk iphoneos -derivedDataPath ./DerivedData CODE_SIGNING_ALLOWED=NO build
+          test -f DerivedData/Build/Products/Release-iphoneos/BachCRMMobile.app/Info.plist
+          mkdir -p Payload
+          cp -R DerivedData/Build/Products/Release-iphoneos/BachCRMMobile.app Payload/
+          zip -qr BachCRMMobile_v0.1_unsigned.ipa Payload
+          unzip -t BachCRMMobile_v0.1_unsigned.ipa
+      - uses: actions/upload-artifact@v4
+        with:
+          name: BachCRM-Mobile-unsigned-IPA
+          path: BachCRM_Mobile/ios/BachCRMMobile_v0.1_unsigned.ipa
+          retention-days: 14
