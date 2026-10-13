@@ -11,7 +11,7 @@ using System.Text.RegularExpressions;
 using System.Windows.Forms;
 
 // Standalone Sacombank Excel workbook CRM. Never connects to FPT or modifies original Bridge.
-// Excel automation edits ONLY worksheet report cells AD:AP of the exact CIF+contract row.
+// Excel automation edits ONLY worksheet report cells AD:AP for all verified contracts of the selected CIF.
 // The existing Excel worksheet is not modified to add macros or move columns.
 internal sealed class Customer {
     public int Row; public string Contract="",Name="",Cif="",Phone="",Reference="",NewPhone="",Area="",Code="",Other="";
@@ -38,6 +38,36 @@ internal static class Util {
     public static decimal Money(object v){ decimal n; return decimal.TryParse(S(v),NumberStyles.Any,CultureInfo.InvariantCulture,out n)?n:0m;}
     public static string N(decimal v){return v.ToString("N0",new CultureInfo("vi-VN"));}
     public static string Quote(string s){return "\""+(s??"").Replace("\"","")+"\"";}
+}
+internal static class ReportLogic {
+    // Strict CIF matching: never use customer name, phone number, or contract similarity.
+    public static bool SameCif(string a,string b){
+        return !String.IsNullOrWhiteSpace(a) && String.Equals(a.Trim(),(b??"").Trim(),StringComparison.OrdinalIgnoreCase);
+    }
+    public static string ScenarioEntry(string label,string phone){
+        // TH codes are ONLY selector names; never store those codes inside AK/AL.
+        string detail=Regex.Replace(label??"",@"^TH[1-6]\s*[·:\-]\s*","",RegexOptions.IgnoreCase).Trim().TrimEnd('.');
+        string dialed=Util.Phone(phone);
+        return (dialed.Length>0?"CALL "+dialed+" : ":"CALL : ")+detail+".";
+    }
+    // Join nonempty, distinct history lines across ALL contracts of one customer.
+    // Existing notes are never deleted; duplicates already copied to other contracts are collapsed.
+    public static string MergeHistory(IEnumerable<string> previous,string current){
+        var entries=new List<string>();var seen=new HashSet<string>(StringComparer.Ordinal);
+        foreach(string history in previous ?? Enumerable.Empty<string>()){
+            foreach(string line in (history??"").Replace("\r\n","\n").Replace('\r','\n').Split('\n')){
+                string entry=line.Trim();
+                if(entry.Length>0 && seen.Add(entry))entries.Add(entry);
+            }
+        }
+        foreach(string line in (current??"").Replace("\r\n","\n").Replace('\r','\n').Split('\n')){
+            string entry=line.Trim();
+            if(entry.Length>0 && seen.Add(entry))entries.Add(entry);
+        }
+        string result=String.Join("\n",entries);
+        if(result.Length>32767)throw new InvalidDataException("Lịch sử AK vượt giới hạn 32.767 ký tự của Excel. Không lưu để tránh mất dữ liệu.");
+        return result;
+    }
 }
 internal sealed class ExcelStore: IDisposable {
     dynamic xl,book,sheet;bool ownExcel;
@@ -85,31 +115,60 @@ internal sealed class ExcelStore: IDisposable {
         if(hits.Count!=1)throw new InvalidOperationException("Không tìm thấy duy nhất cặp CIF + HĐ. Cần nạp lại file.");
         return hits[0].Name;
     }
-    public void SaveReport(Customer c,ReportData d){
+    public int CustomerContractCount(string cif){
+        return Customers.Count(x=>ReportLogic.SameCif(x.Cif,cif));
+    }
+    public int SaveReport(Customer c,ReportData d){
         if(ReadOnly)throw new InvalidOperationException("File Excel đang ở chế độ chỉ đọc. Đóng file xung đột rồi mở lại CRM.");
         Exact(c.Row,c.Cif,c.Contract);
+        // The report belongs to the customer CIF. Every distinct contract must get the same
+        // current action, while AK collects the history from all those contracts.
+        List<Customer> targets=Customers.Where(x=>ReportLogic.SameCif(x.Cif,c.Cif)).OrderBy(x=>x.Row).ToList();
+        if(targets.Count==0)throw new InvalidOperationException("Không tìm thấy hồ sơ theo CIF trong Excel.");
+        foreach(Customer target in targets)Exact(target.Row,target.Cif,target.Contract);
+
+        object[] prepared=new object[13];
+        for(int k=0;k<13;k++){
+            string val=d.Text[k]??"";
+            if(val.Length>32767)throw new InvalidDataException("Nội dung cột "+(30+k)+" quá 32.767 ký tự.");
+            if(String.IsNullOrWhiteSpace(val))continue;
+            if(k==2||k==5){
+                DateTime date;
+                if(!DateTime.TryParseExact(val,"dd/MM/yyyy",CultureInfo.InvariantCulture,DateTimeStyles.None,out date))throw new InvalidDataException("Ngày không hợp lệ (dd/MM/yyyy).");
+                prepared[k]=date.ToOADate();
+            }else if(k==4){
+                decimal m;
+                if(!decimal.TryParse(val,NumberStyles.AllowThousands|NumberStyles.AllowDecimalPoint,new CultureInfo("vi-VN"),out m))throw new InvalidDataException("Số tiền cam kết trả không hợp lệ.");
+                prepared[k]=(double)m;
+            }else prepared[k]=val;
+        }
+        // Merge all previous AK notes before writing; thus same-CIF contracts share the exact history.
+        string history=ReportLogic.MergeHistory(targets.Select(x=>Util.S(sheet.Cells[x.Row,37].Value2)), d.Text[7]);
+        if(!String.IsNullOrWhiteSpace(history))prepared[7]=history;
+
         string directory=System.IO.Path.Combine(System.IO.Path.GetDirectoryName(PathName),"BachCRMExcel_Backup");Directory.CreateDirectory(directory);
         string dest=System.IO.Path.Combine(directory,System.IO.Path.GetFileNameWithoutExtension(PathName)+"_"+DateTime.Now.ToString("yyyyMMdd_HHmmss_fff")+".xlsx");
-        book.SaveCopyAs(dest); // all sheets/formatting backed up before every write
-        int row=c.Row;
-        // Only overwrite report cells when the new value is nonempty. Preserve source A:AC untouched.
-        for(int k=0;k<13;k++){
-            int col=30+k;string val=d.Text[k];if(String.IsNullOrWhiteSpace(val))continue;
-            if(k==2||k==5){
-                DateTime date;if(!DateTime.TryParseExact(val,"dd/MM/yyyy",CultureInfo.InvariantCulture,DateTimeStyles.None,out date))throw new InvalidDataException("Ngày không hợp lệ (dd/MM/yyyy).");
-                sheet.Cells[row,col].Value2=date.ToOADate();sheet.Cells[row,col].NumberFormat="dd/mm/yyyy";
-            }else if(k==4){
-                decimal m;if(!decimal.TryParse(val,NumberStyles.AllowThousands|NumberStyles.AllowDecimalPoint,new CultureInfo("vi-VN"),out m))throw new InvalidDataException("Số tiền cam kết trả không hợp lệ.");
-                sheet.Cells[row,col].Value2=(double)m;sheet.Cells[row,col].NumberFormat="#,##0";
-            }else if(k==7||k==8){
-                string old=Util.S(sheet.Cells[row,col].Value2);
-                if(old.Length>0 && !old.Contains(val))sheet.Cells[row,col].Value2=old+"\n"+val;
-                else if(old.Length==0)sheet.Cells[row,col].Value2=val;
-                sheet.Cells[row,col].WrapText=true;
-            }else sheet.Cells[row,col].Value2=val;
+        book.SaveCopyAs(dest); // Full workbook backup before touching any report row.
+        try{
+            foreach(Customer target in targets){
+                int row=target.Row;
+                for(int k=0;k<13;k++){
+                    object val=prepared[k];
+                    if(val==null)continue; // preserve other columns when operator leaves them blank
+                    int col=30+k;
+                    // AK cumulative; AL always REPLACES the previous report, never appends.
+                    sheet.Cells[row,col].Value2=val;
+                    if(k==2||k==5)sheet.Cells[row,col].NumberFormat="dd/mm/yyyy";
+                    else if(k==4)sheet.Cells[row,col].NumberFormat="#,##0";
+                    else if(k==7||k==8)sheet.Cells[row,col].WrapText=true;
+                }
+            }
+            book.Save();
+        }catch(Exception ex){
+            throw new IOException("Không lưu được Excel. Hãy đóng Excel KHÔNG lưu các thay đổi chưa hoàn tất và khôi phục bản sao lưu nếu cần. Bản sao: "+dest+". "+ex.Message,ex);
         }
-        try{book.Save();}catch(Exception ex){throw new IOException("Không thể lưu Excel. Bản sao lưu ở: "+dest+". "+ex.Message);}
         Load();
+        return targets.Count;
     }
     public void ShowExcel(){try{xl.Visible=true;book.Activate();sheet.Activate();}catch{}}
     public Customer SelectedExcelCustomer(){
@@ -171,11 +230,11 @@ internal sealed class ReportWindow:Form{
     static readonly string[] TH={"TH1 · Tắt máy","TH2 · Không nghe máy","TH3 · Sai số","TH4 · Không có hứa hẹn","TH5 · Người khác / Sai số","TH6 · Có hứa hẹn"};
     public ReportWindow(ExcelStore s,Customer customer,string phone){
         store=s;c=customer;Text="BÁCH CRM EXCEL  |  GHI BÁO CÁO VÀO EXCEL";Font=new Font("Segoe UI",9);Size=new Size(1000,840);MinimumSize=new Size(870,680);StartPosition=FormStartPosition.CenterParent;BackColor=Color.FromArgb(246,248,252);
-        var title=new Label{Text=c.Name+"   ·   CIF "+c.Cif+"   ·   HĐ "+c.Contract+"   ·   dòng "+c.Row,Font=new Font("Segoe UI",11,FontStyle.Bold),ForeColor=Color.FromArgb(24,45,78),Dock=DockStyle.Top,Height=43,Padding=new Padding(18,12,0,0)};Controls.Add(title);
-        var warning=new Label{Text="Chọn TH1–TH6: biểu mẫu sẽ tự điền AD–AP. Nội dung AK/AL tự thêm ngày hiện tại ngay khi nhập. Kiểm tra kết quả trước khi lưu.",ForeColor=Color.DarkRed,Dock=DockStyle.Top,Height=39,Padding=new Padding(18,6,5,3)};Controls.Add(warning);
+        var title=new Label{Text=c.Name+"   ·   CIF "+c.Cif+"   ·   HĐ đang gọi "+c.Contract+"   ·   Đồng bộ "+store.CustomerContractCount(c.Cif)+" hợp đồng",Font=new Font("Segoe UI",11,FontStyle.Bold),ForeColor=Color.FromArgb(24,45,78),Dock=DockStyle.Top,Height=43,Padding=new Padding(18,12,0,0)};Controls.Add(title);
+        var warning=new Label{Text="Chọn TH1–TH6: AK cộng dồn lịch sử, AL chỉ ghi lần mới nhất; tất cả hợp đồng cùng CIF nhận báo cáo. Kiểm tra trước khi lưu.",ForeColor=Color.DarkRed,Dock=DockStyle.Top,Height=39,Padding=new Padding(18,6,5,3)};Controls.Add(warning);
         var head=new Panel{Dock=DockStyle.Top,Height=54};Controls.Add(head);var thLabel=new Label{Text="MẪU TÌNH HUỐNG",Left=18,Top=19,Width=145};head.Controls.Add(thLabel);
         scenarios.SetBounds(170,13,360,29);scenarios.DropDownStyle=ComboBoxStyle.DropDownList;scenarios.Items.AddRange(TH);head.Controls.Add(scenarios);
-        var topBar=new Label{Text="Tự điền mẫu → xác nhận → lưu đúng CIF + HĐ trên Excel.",Left=548,Top=18,Width=420,Height=25,ForeColor=Color.FromArgb(71,89,119)};head.Controls.Add(topBar);
+        var topBar=new Label{Text="Tự điền mẫu → xác nhận → cập nhật mọi hợp đồng cùng CIF trên Excel.",Left=548,Top=18,Width=420,Height=25,ForeColor=Color.FromArgb(71,89,119)};head.Controls.Add(topBar);
         var body=new Panel{Dock=DockStyle.Fill,AutoScroll=true};Controls.Add(body);body.BringToFront();
         var bottom=new Panel{Dock=DockStyle.Bottom,Height=63,BackColor=Color.White};Controls.Add(bottom);bottom.BringToFront();
         var save=new Button{Text="LƯU BÁO CÁO VÀO EXCEL",Width=245,Height=38,BackColor=Color.FromArgb(14,106,192),ForeColor=Color.White,FlatStyle=FlatStyle.Flat,Top=12,Anchor=AnchorStyles.Right|AnchorStyles.Top};save.Left=Width-285;save.FlatAppearance.BorderSize=0;bottom.Controls.Add(save);
@@ -216,10 +275,8 @@ internal sealed class ReportWindow:Form{
     }
     void ApplyScenario(int index,string phone){
         if(index<0)return;
-        string intro=TH[index].Substring(0,3);string desc=TH[index].Substring(6).Trim();
-        // Prepare a draft without a stale date; stamp it with actual computer time when the user SAVES.
-        string dialed=Util.Phone(phone);
-        string entry=(dialed.Length>0?"CALL "+dialed+" : ":"CALL : ")+intro+" · "+desc+".";
+        // The TH label is only an option name. Save the natural report sentence, not "TH1" etc.
+        string entry=ReportLogic.ScenarioEntry(TH[index],phone);
         if(boxes[7]!=null)boxes[7].Text=entry;
         if(boxes[8]!=null)boxes[8].Text=entry;
         // The workbook contains an external-link CACHE for its Code sheet. Use exact cached values.
@@ -253,14 +310,14 @@ internal sealed class ReportWindow:Form{
             }
         }
         if(d.Text[4].Length>0){decimal m;if(!decimal.TryParse(d.Text[4],NumberStyles.AllowDecimalPoint|NumberStyles.AllowThousands,new CultureInfo("vi-VN"),out m)||m<0){MessageBox.Show(this,"Số tiền cam kết phải là số >= 0, ví dụ 1500000.");return;}}
-        try{store.SaveReport(c,d);MessageBox.Show(this,"Đã ghi đúng dòng "+c.Row+" của file Excel và tạo bản sao lưu trước khi ghi.","Hoàn thành",MessageBoxButtons.OK,MessageBoxIcon.Information);DialogResult=DialogResult.OK;Close();}
+        try{int count=store.SaveReport(c,d);MessageBox.Show(this,"Đã cập nhật "+count+" hợp đồng thuộc CIF "+c.Cif+" trong Excel.\nAK: lịch sử cộng dồn; AL: kết quả mới nhất.\nĐã tạo bản sao lưu trước khi ghi.","Hoàn thành",MessageBoxButtons.OK,MessageBoxIcon.Information);DialogResult=DialogResult.OK;Close();}
         catch(Exception ex){MessageBox.Show(this,"Không thể lưu báo cáo: "+ex.Message,"Lỗi",MessageBoxButtons.OK,MessageBoxIcon.Error);}
     }
 }
 internal sealed class CRM:Form {
     ExcelStore store;ExcelRowDock dock;readonly DataGridView grid=new DataGridView();readonly TextBox search=new TextBox();readonly Label summary=new Label(),fileLabel=new Label();readonly Timer queueTimer=new Timer(); readonly Dictionary<int,Customer> displayed=new Dictionary<int,Customer>();
     public CRM(){
-        Text="BÁCH CRM EXCEL  ·  Sacombank  ·  v0.4";Size=new Size(1370,770);MinimumSize=new Size(1040,650);Font=new Font("Segoe UI",9);BackColor=Color.FromArgb(245,248,252);StartPosition=FormStartPosition.CenterScreen;
+        Text="BÁCH CRM EXCEL  ·  Sacombank  ·  v0.5";Size=new Size(1370,770);MinimumSize=new Size(1040,650);Font=new Font("Segoe UI",9);BackColor=Color.FromArgb(245,248,252);StartPosition=FormStartPosition.CenterScreen;
         var header=new Panel{Dock=DockStyle.Top,Height=74,BackColor=Color.FromArgb(22,40,69)};Controls.Add(header);
         header.Controls.Add(new Label{Text="BÁCH CRM EXCEL",Left=22,Top=13,ForeColor=Color.White,Font=new Font("Segoe UI",18,FontStyle.Bold),AutoSize=true});
         header.Controls.Add(new Label{Text="Quản lý danh sách · CALL EyeBeam · Báo cáo trực tiếp vào Excel · Độc lập FPT",Left=23,Top=49,ForeColor=Color.FromArgb(188,205,225),AutoSize=true});
