@@ -5,6 +5,7 @@ on:
       - bachcrm-excel-isolated-build-20261013
       - bachcrm-excel-v03-floating-actions-20261013
       - bachcrm-excel-v04-autoreport-20261013
+      - bachcrm-excel-v05-cif-reports-20261013
     paths:
       - 'BachCRM_Excel/**'
       - '.github/workflows/build-bachcrm-excel.yml'
@@ -28,6 +29,17 @@ jobs:
           if errorlevel 1 exit /b 1
           if not exist "BachCRM_Excel\BachCRMExcel.exe" exit /b 1
           if not exist "BachCRM_Excel\BachCRMExcelBridge.exe" exit /b 1
+      - name: Regression tests for CIF and AK/AL reports
+        shell: cmd
+        run: |
+          @echo off
+          set "fw=%WINDIR%\Microsoft.NET\Framework64\v4.0.30319"
+          if not exist "%fw%\csc.exe" set "fw=%WINDIR%\Microsoft.NET\Framework\v4.0.30319"
+          set "refs=/reference:System.dll /reference:System.Core.dll /reference:System.Drawing.dll /reference:System.Windows.Forms.dll /reference:System.Xml.dll /reference:System.Security.dll /reference:Microsoft.CSharp.dll /reference:%fw%\WPF\UIAutomationClient.dll /reference:%fw%\WPF\UIAutomationTypes.dll /reference:%fw%\WPF\WindowsBase.dll"
+          "%fw%\csc.exe" /nologo /target:exe /main:ReportLogicTests /platform:anycpu /codepage:65001 /out:"BachCRM_Excel\ReportLogicTests.exe" %refs% "BachCRM_Excel\src\BachCRMExcel.cs" "BachCRM_Excel\tests\ReportLogicTests.cs"
+          if errorlevel 1 exit /b 1
+          "BachCRM_Excel\ReportLogicTests.exe"
+          if errorlevel 1 exit /b 1
       - uses: actions/upload-artifact@v4
         with:
           name: BachCRMExcel-Windows-exe
