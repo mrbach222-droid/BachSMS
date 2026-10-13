@@ -108,10 +108,10 @@ internal sealed class BachCRMExcelBridge : Form {
         number.SetBounds(13,64,334,31);number.Font=new Font("Segoe UI",13,FontStyle.Bold);
         number.ReadOnly=true;number.BackColor=Color.White;number.ForeColor=Color.FromArgb(22,42,73);
         number.BorderStyle=BorderStyle.FixedSingle;number.ShortcutsEnabled=true;
-        startButton.Text="THEO DÕI";startButton.SetBounds(13,104,158,28);
+        startButton.Text="GÁC MÁY → BÁO CÁO";startButton.SetBounds(13,104,181,28);
         startButton.BackColor=Color.FromArgb(26,112,205);startButton.ForeColor=Color.White;
         startButton.FlatStyle=FlatStyle.Flat;startButton.FlatAppearance.BorderSize=0;
-        stopButton.Text="DỪNG / THOÁT";stopButton.SetBounds(181,104,166,28);
+        stopButton.Text="DỪNG / THOÁT";stopButton.SetBounds(201,104,146,28);
         stopButton.FlatStyle=FlatStyle.Flat;stopButton.BackColor=Color.FromArgb(231,236,243);
         stopButton.FlatAppearance.BorderSize=0;
         status.Text="Đang khởi động tự động...";status.SetBounds(13,138,334,18);
@@ -121,20 +121,21 @@ internal sealed class BachCRMExcelBridge : Form {
         var menu=new ContextMenuStrip();
         menu.Items.Add("THỬ điền lại số đang hiển thị vào EyeBeam",null,(sender,e)=>MoveNumberToEyeBeam());
         
-        menu.Items.Add("Mở báo cáo Excel (dự phòng)",null,(sender,e)=>LaunchHelper());
+        menu.Items.Add("Mở báo cáo Excel (dự phòng)",null,(sender,e)=>ManualFinishReport());
+        menu.Items.Add("Hiệu chỉnh nút ĐỎ gác máy EyeBeam (chỉ một lần)",null,(sender,e)=>StartCalibration(2));
         menu.Items.Add("Kiểm tra trạng thái EyeBeam",null,(sender,e)=>ProbeState());
         menu.Items.Add("Hiện nhật ký chẩn đoán",null,(sender,e)=>ShowLog());
         menu.Items.Add("Chọn đường dẫn EyeBeam",null,(sender,e)=>ChooseEyeBeamPath());
         ContextMenuStrip=menu;
         number.TextChanged+=delegate {string v=NormalizePhone(number.Text);if(v!=selectedPhone){selectedPhone=v;sawActive=false;completed=false;idleTicks=0;confirmedActive=false;endDispatched=false;idleConfirmations=0;callArmed=false;currentCallPhone=v;}};
-        startButton.Click+=delegate {BeginWatch();};
+        startButton.Click+=delegate {ManualFinishReport();};
         stopButton.Click+=delegate {running=false;careLaunchTimer.Stop();inputPoll.Stop();clipboardDelay.Stop();clock.Stop();Close();};
         calibrateTimer.Interval=1000;calibrateTimer.Tick+=delegate{calibrateTicks--;if(calibrateTicks==0){calibrateTimer.Stop();FinishCalibration();}else status.Text="Hiệu chỉnh "+(calibrationMode==1?"ô số":"nút đỏ")+"... "+calibrateTicks+" giây";};
         try {var parts=File.ReadAllText(CalibrationPath).Split('|');rx=double.Parse(parts[0],System.Globalization.CultureInfo.InvariantCulture);ry=double.Parse(parts[1],System.Globalization.CultureInfo.InvariantCulture);if(parts.Length>=4){hx=double.Parse(parts[2],System.Globalization.CultureInfo.InvariantCulture);hy=double.Parse(parts[3],System.Globalization.CultureInfo.InvariantCulture);}}catch{}
         clock.Interval=450;clock.Tick+=delegate{if(running){Tick();if(EyeBeam()==null && (DateTime.Now-lastEyeSearch).TotalSeconds>10){lastEyeSearch=DateTime.Now;EnsureEyeBeam();}}};
         clipboardDelay.Interval=45; clipboardDelay.Tick+=CheckClickedClipboard;
         inputPoll.Interval=45;inputPoll.Tick+=delegate{if(running)PollInputs();};
-        Log("V0.9.3 COMPACT (engine v0.9.2) ENDCALL FAST: Không cần hiệu chỉnh tọa độ. EyeBeam tự khởi động; gọi vẫn do người dùng bấm Enter.");
+        Log("Bách CRM Excel v0.4: tự nhận trạng thái gác máy, hỗ trợ hiệu chỉnh nút đỏ, nút dự phòng báo cáo. Người dùng tự Enter để gọi.");
         careLaunchTimer.Interval=350;
         careLaunchTimer.Tick+=delegate{
             careLaunchAttempts++;
@@ -244,7 +245,7 @@ internal sealed class BachCRMExcelBridge : Form {
     }
     void BeginWatch(){
         if(running)return;
-        running=true;inputPoll.Start();clock.Start();startButton.Enabled=false;
+        running=true;inputPoll.Start();clock.Start();startButton.Enabled=true;
         Log("Theo dõi cuộc gọi EyeBeam của KH đã chọn từ Excel.");
         EnsureEyeBeam();
         if(EyeBeam()!=null)status.Text="Đang theo dõi trạng thái EyeBeam cho số đã chọn.";
@@ -258,7 +259,17 @@ internal sealed class BachCRMExcelBridge : Form {
         else if(Regex.IsMatch(p,@"^[35789][0-9]{8}$"))p="0"+p;
         return Regex.IsMatch(p,@"^0[0-9]{9}$")?p:"";
     }
-    void Log(string msg){if(trace.TextLength>11000)trace.Text=trace.Text.Substring(trace.TextLength-5500);trace.AppendText(DateTime.Now.ToString("HH:mm:ss")+" · "+msg+Environment.NewLine);}
+    void Log(string msg){
+        if(trace.TextLength>11000)trace.Text=trace.Text.Substring(trace.TextLength-5500);
+        string entry=DateTime.Now.ToString("HH:mm:ss")+" · "+msg+Environment.NewLine;
+        trace.AppendText(entry);
+        try{
+            string file=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"BachCRMExcel","bridge_events.log");
+            var folder=Path.GetDirectoryName(file);if(!Directory.Exists(folder))Directory.CreateDirectory(folder);
+            if(File.Exists(file)&&new FileInfo(file).Length>200000)File.WriteAllText(file,"",Encoding.UTF8);
+            File.AppendAllText(file,entry,Encoding.UTF8);
+        }catch{}
+    }
     void CaptureClipboard(bool onlyWhenFpt){
         try {
             if(onlyWhenFpt&&!WindowTitle(GetForegroundWindow()).StartsWith("Quản lý nghiệp vụ",StringComparison.OrdinalIgnoreCase))return;
@@ -458,10 +469,12 @@ internal sealed class BachCRMExcelBridge : Form {
             if(!ok){try{ok=UiaEditPhone(ey,phone);}catch(Exception ex){Log("UIA attempt: "+ex.GetType().Name+" / "+ex.Message);}}
             if(ok){
                 status.Text="Đã kiểm tra số ở EyeBeam: "+Mask(phone)+". Enter để gọi.";
+                ArmSessionForStateDetection(phone);
                 Log("Verified dial number: "+Mask(phone));return;
             }
             KeyboardDialPhone(ey,phone);
             status.Text="Đã gửi phím số vào EyeBeam; kiểm tra màn hình trước Enter.";
+            ArmSessionForStateDetection(phone);
             Log("Keyboard fallback used; eyeBeam did not expose dial field for verification.");
         }catch(Exception ex){
             status.Text="EyeBeam chưa nhận số: "+ex.Message;
@@ -490,6 +503,7 @@ internal sealed class BachCRMExcelBridge : Form {
                         clipboardDelay.Start();
 
                     }else if(IsEyeBeamWindow(foreground) && (confirmedActive || callArmed) && !endDispatched &&
+                              (DateTime.Now-callArmedAt).TotalMilliseconds>=600 &&
                               (IsHangupPoint(foreground,point) || ClickedEndCallControl(point))){
                         Log("Đã bấm điều khiển kết thúc EyeBeam; chờ trạng thái cuộc gọi xác nhận.");
                         // A labelled native end-call control is sufficient when EyeBeam does not expose call state.
@@ -611,8 +625,8 @@ internal sealed class BachCRMExcelBridge : Form {
             bool active=false,idle=false;
             for(int i=0;i<list.Count&&i<600;i++){
                 string x=list[i].Current.Name.Trim();
-                if(x.Equals("On the Phone",StringComparison.OrdinalIgnoreCase))active=true;
-                if(x.Equals("Available",StringComparison.OrdinalIgnoreCase))idle=true;
+                if(x.Equals("On the Phone",StringComparison.OrdinalIgnoreCase)||x.Equals("In Call",StringComparison.OrdinalIgnoreCase)||x.Equals("In a Call",StringComparison.OrdinalIgnoreCase)||x.Equals("Đang gọi",StringComparison.OrdinalIgnoreCase))active=true;
+                if(x.Equals("Available",StringComparison.OrdinalIgnoreCase)||x.Equals("Idle",StringComparison.OrdinalIgnoreCase)||x.Equals("Ready",StringComparison.OrdinalIgnoreCase)||x.Equals("Sẵn sàng",StringComparison.OrdinalIgnoreCase))idle=true;
             }
             if(active&&!idle)return CallState.Active;
             if(idle&&!active)return CallState.Idle;
@@ -641,11 +655,32 @@ internal sealed class BachCRMExcelBridge : Form {
             }
         }catch{}return false;
     }
+    void ArmSessionForStateDetection(string phone){
+        if(endDispatched)return;
+        currentCallPhone=phone;
+        callArmed=true;
+        callArmedAt=DateTime.Now;
+        // Don't mark it a completed call unless EyeBeam confirms active or the user clicks hangup.
+        Log("Số đã chuyển sang EyeBeam; đang chờ trạng thái gọi hoặc thao tác nút ĐỎ.");
+    }
+    void ManualFinishReport(){
+        if(NormalizePhone(currentCallPhone).Length==0){
+            MessageBox.Show(this,"Chưa có SĐT cho lần tác động này.");return;
+        }
+        if(MessageBox.Show(this,"Đã kết thúc cuộc gọi với số đang chọn?\n\nChương trình sẽ mở bảng TH1–TH6, CHƯA tự lưu Excel.","Xác nhận kết thúc cuộc gọi",MessageBoxButtons.YesNo,MessageBoxIcon.Question)!=DialogResult.Yes)return;
+        DispatchEndCall("Người dùng xác nhận kết thúc");
+    }
     void DispatchEndCall(string reason){
         if(endDispatched || NormalizePhone(currentCallPhone).Length==0)return;
         endDispatched=true;callArmed=false;confirmedActive=false;idleConfirmations=0;
-        Log("Cuộc gọi kết thúc ("+reason+"); mở báo cáo Excel.");
-        LaunchHelper();
+        Log("Cuộc gọi kết thúc ("+reason+"); tự mở báo cáo Excel.");
+        if(LaunchHelper()){
+            // End-call event belongs to exactly one call; do not leave stale Bridge listeners active.
+            if(IsHandleCreated)BeginInvoke((Action)delegate{Close();});
+        }else{
+            // Keep this window available so the user can retry if request delivery fails.
+            endDispatched=false;callArmed=true;
+        }
     }
     void Tick(){
         if(!running || stateScanBusy || (DateTime.Now-lastStateScan).TotalMilliseconds<350)return;
@@ -668,10 +703,10 @@ internal sealed class BachCRMExcelBridge : Form {
             });}catch{stateScanBusy=false;}
         });
     }
-    void LaunchHelper(){
+    bool LaunchHelper(){
         string phone=NormalizePhone(number.Text);
-        if(phone.Length==0){MessageBox.Show(this,"Không có số hợp lệ để mở báo cáo Excel.");return;}
-        if((DateTime.Now-lastDispatch).TotalSeconds<3)return;
+        if(phone.Length==0){MessageBox.Show(this,"Không có số hợp lệ để mở báo cáo Excel.");return false;}
+        if((DateTime.Now-lastDispatch).TotalSeconds<3)return false;
         try {
             string dir=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"BachCRMExcel","requests");
             Directory.CreateDirectory(dir);
@@ -679,9 +714,10 @@ internal sealed class BachCRMExcelBridge : Form {
             byte[] protectedData=System.Security.Cryptography.ProtectedData.Protect(Encoding.UTF8.GetBytes(data),null,System.Security.Cryptography.DataProtectionScope.CurrentUser);
             File.WriteAllBytes(Path.Combine(dir,Guid.NewGuid().ToString("N")+".req"),protectedData);
             lastDispatch=DateTime.Now;
-            status.Text="Đã chuyển sự kiện cuộc gọi tới Bách CRM Excel.";
+            status.Text="Đã chuyển sự kiện gác máy; mở mẫu TH trên CRM Excel.";
             Log("Gửi yêu cầu báo cáo Excel cho đúng CIF + HĐ. Không tự ghi báo cáo.");
-        }catch(Exception ex){status.Text="Không gửi được báo cáo Excel: "+ex.Message;Log("Queue report failed: "+ex.Message);}
+            return true;
+        }catch(Exception ex){status.Text="Không gửi được báo cáo Excel: "+ex.Message;Log("Queue report failed: "+ex.Message);return false;}
     }
 
 }
