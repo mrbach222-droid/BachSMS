@@ -10,6 +10,7 @@ on:
       - bachcrm-excel-v07-sms-followup-20261013
       - bachcrm-excel-v08-excel-busy-endcall-20261013
       - bachcrm-excel-v09-two-stage-care-20261013
+      - bachcrm-excel-v10-fast-save-care-bridge-20261013
     paths:
       - 'BachCRM_Excel/**'
       - '.github/workflows/build-bachcrm-excel.yml'
