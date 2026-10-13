@@ -93,6 +93,24 @@ internal class ReportLogicTests {
         // Marking care must not create duplicate entries for the same CIF; the report updates all contracts.
         foreach(var c in careData.Where(x=>x.Cif=="400")){c.YellowRow=true;c.Care=true;c.Reported=true;}
         Assert(CareLogic.UniqueCare(careData).Count(x=>x.Cif=="400")==1,"Checkbox care fanout deduplicated by CIF");
+        var daily=ReportLogic.MergeTodayResults(new[]{
+            "12/10/2026 CALL 0911111111 : Không nghe máy.\n13/10/2026 CALL 0911111111 : Nhắn lại.",
+            "13/10/2026 CALL 0911111111 : Nhắn lại."
+        },"13/10/2026 CALL 0911111111 : Có hứa hẹn.",new DateTime(2026,10,13));
+        Assert(!daily.Contains("12/10/2026")&&daily.Contains("Nhắn lại")&&daily.Contains("Có hứa hẹn"),"AL accumulates only the current calendar day");
+        Assert(daily.Split('\n').Length==2,"AL merges duplicate same-day entries across same CIF");
+        var tomorrow=ReportLogic.MergeTodayResults(new[]{daily},"14/10/2026 CALL 0911111111 : Hẹn gọi lại.",new DateTime(2026,10,14));
+        Assert(tomorrow.Split('\n').Length==1&&!tomorrow.Contains("13/10/2026"),"AL resets for the next calendar day");
+        var urgentData = new List<Customer>{
+            new Customer {Cif="C", Row=9, YellowRow=false, NextAction=new DateTime(2026,10,14)},
+            new Customer {Cif="B", Row=8, YellowRow=true, NextAction=new DateTime(2026,10,16)},
+            new Customer {Cif="A", Row=7, YellowRow=true, NextAction=new DateTime(2026,10,12)},
+            new Customer {Cif="D", Row=10, YellowRow=false}
+        };
+        var prioritized=CareSortLogic.Sort(urgentData.GroupBy(x=>x.Cif),new DateTime(2026,10,13)).Select(g=>g.Key).ToArray();
+        Assert(prioritized.SequenceEqual(new[]{"A","B","C","D"}),"Manual-yellow CIFs first; nearest promise dates then undated");
+        Assert(CareSortLogic.Urgent(new DateTime(2026,10,16),new DateTime(2026,10,13)),"Today plus 3 days marked urgent");
+        Assert(!CareSortLogic.Urgent(new DateTime(2026,10,17),new DateTime(2026,10,13)),"Farther appointments are not marked red");
         Console.WriteLine("ALL TESTS PASSED");
     }
 }
