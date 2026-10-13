@@ -511,6 +511,9 @@ internal sealed class CRM:Form {
     void AddCol(string name,string title,int width){grid.Columns.Add(new DataGridViewTextBoxColumn{Name=name,HeaderText=title,Width=width,SortMode=DataGridViewColumnSortMode.NotSortable});}
     void ChooseFile(){using(var d=new OpenFileDialog{Filter="Excel (*.xlsx)|*.xlsx",Title="Chọn file Excel Sacombank"})if(d.ShowDialog(this)==DialogResult.OK)Open(d.FileName);}
     void Open(string path){if(!File.Exists(path))return;
+        if(pendingReference!=null && store!=null && !String.Equals(System.IO.Path.GetFullPath(path),store.PathName,StringComparison.OrdinalIgnoreCase)){
+            MessageBox.Show(this,"Chưa kết thúc cuộc gọi tham chiếu cho CIF "+pendingReference.Cif+". Không thể đổi sang workbook khác để tránh ghi nhầm khách.");return;
+        }
         try{ExcelStore next=ExcelComBusyFilter.RetryRead(()=>new ExcelStore(path));if(dock!=null&&!dock.IsDisposed){dock.Close();dock=null;} if(store!=null)store.Dispose();store=next;Settings.WorkbookPath=path;fileLabel.Text="FILE ĐANG DÙNG: "+path+(store.ReadOnly?"     [CHỈ ĐỌC]":"");RefreshRows();}
         catch(Exception e){MessageBox.Show(this,"Không mở được file Excel: "+e.Message+"\n\nNếu Excel đang bận: bấm Esc để đóng danh sách/thoát chỉnh sửa ô, chờ vài giây rồi TẢI LẠI. CRM đã tự thử lại các lỗi COM tạm thời.");}
     }
