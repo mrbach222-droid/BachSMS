@@ -3,6 +3,7 @@ on:
   push:
     branches:
       - bachcrm-excel-isolated-build-20261013
+      - bachcrm-excel-v03-floating-actions-20261013
     paths:
       - 'BachCRM_Excel/**'
       - '.github/workflows/build-bachcrm-excel.yml'
