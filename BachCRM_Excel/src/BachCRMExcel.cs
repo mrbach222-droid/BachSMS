@@ -95,10 +95,19 @@ internal static class MbReportTemplates {
     public static readonly string[] ContactPerson={"Không gặp ai","Không gặp ai","Không gặp ai","Khách hàng","Người khác","Khách hàng"};
     public static readonly string[] Action={"Không có tín hiệu","Có tín hiệu không bắt máy","Số không tồn tại, số không đúng","KN hẹn làm việc lại","Không phải số KN / Số người thân khác","Hứa thanh toán"};
     public static readonly string[] Classification={"Call - Tắt máy","Call - Không nghe máy","Call - Sai số","Call - Không hứa thanh toán","Call - Sai số","Call - Có hứa thanh toán"};
+    // Only missed/incorrect-number situations receive an SMS follow-up sentence.
+    // TH4 (no payment promise) and TH6 (payment promise) must remain verbatim.
+    public const string SmsFollowup = "Nhắn tin SMS chờ phản hồi xác thực.";
     public static string Note(int scenario,string phone){
         if(scenario<0||scenario>=Notes.Length)throw new ArgumentOutOfRangeException("scenario");
         string p=Util.Phone(phone);
-        return Notes[scenario].Replace("[SDT KH]",p.Length>0?p:"[SDT KH]");
+        string note=Notes[scenario].Replace("[SDT KH]",p.Length>0?p:"[SDT KH]").TrimEnd();
+        if(scenario==0||scenario==1||scenario==2||scenario==4){
+            // Return a fresh note for each TH selection; switching templates never doubles the suffix.
+            if(!note.EndsWith(".")&&!note.EndsWith("!")&&!note.EndsWith("?"))note+=".";
+            note+=" "+SmsFollowup;
+        }
+        return note;
     }
 }
 internal sealed class ExcelStore: IDisposable {
@@ -356,7 +365,7 @@ internal sealed class ReportWindow:Form{
 internal sealed class CRM:Form {
     ExcelStore store;ExcelRowDock dock;readonly DataGridView grid=new DataGridView();readonly TextBox search=new TextBox();readonly Label summary=new Label(),fileLabel=new Label();readonly Timer queueTimer=new Timer(); readonly Dictionary<int,Customer> displayed=new Dictionary<int,Customer>();
     public CRM(){
-        Text="BÁCH CRM EXCEL  ·  Sacombank  ·  v0.6";Size=new Size(1370,770);MinimumSize=new Size(1040,650);Font=new Font("Segoe UI",9);BackColor=Color.FromArgb(245,248,252);StartPosition=FormStartPosition.CenterScreen;
+        Text="BÁCH CRM EXCEL  ·  Sacombank  ·  v0.7";Size=new Size(1370,770);MinimumSize=new Size(1040,650);Font=new Font("Segoe UI",9);BackColor=Color.FromArgb(245,248,252);StartPosition=FormStartPosition.CenterScreen;
         var header=new Panel{Dock=DockStyle.Top,Height=74,BackColor=Color.FromArgb(22,40,69)};Controls.Add(header);
         header.Controls.Add(new Label{Text="BÁCH CRM EXCEL",Left=22,Top=13,ForeColor=Color.White,Font=new Font("Segoe UI",18,FontStyle.Bold),AutoSize=true});
         header.Controls.Add(new Label{Text="Quản lý danh sách · CALL EyeBeam · Báo cáo trực tiếp vào Excel · Độc lập FPT",Left=23,Top=49,ForeColor=Color.FromArgb(188,205,225),AutoSize=true});
