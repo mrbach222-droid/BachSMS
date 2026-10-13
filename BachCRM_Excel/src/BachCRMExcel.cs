@@ -172,10 +172,10 @@ internal sealed class ReportWindow:Form{
     public ReportWindow(ExcelStore s,Customer customer,string phone){
         store=s;c=customer;Text="BÁCH CRM EXCEL  |  GHI BÁO CÁO VÀO EXCEL";Font=new Font("Segoe UI",9);Size=new Size(1000,840);MinimumSize=new Size(870,680);StartPosition=FormStartPosition.CenterParent;BackColor=Color.FromArgb(246,248,252);
         var title=new Label{Text=c.Name+"   ·   CIF "+c.Cif+"   ·   HĐ "+c.Contract+"   ·   dòng "+c.Row,Font=new Font("Segoe UI",11,FontStyle.Bold),ForeColor=Color.FromArgb(24,45,78),Dock=DockStyle.Top,Height=43,Padding=new Padding(18,12,0,0)};Controls.Add(title);
-        var warning=new Label{Text="Đã khôi phục danh mục Code từ bộ nhớ đệm trong Excel. Chọn TH, kiểm tra các giá trị gợi ý theo quy định hiện hành trước khi lưu.",ForeColor=Color.DarkRed,Dock=DockStyle.Top,Height=39,Padding=new Padding(18,6,5,3)};Controls.Add(warning);
+        var warning=new Label{Text="Chọn TH1–TH6: biểu mẫu sẽ tự điền AD–AP. Nội dung AK/AL tự thêm ngày hiện tại ngay khi nhập. Kiểm tra kết quả trước khi lưu.",ForeColor=Color.DarkRed,Dock=DockStyle.Top,Height=39,Padding=new Padding(18,6,5,3)};Controls.Add(warning);
         var head=new Panel{Dock=DockStyle.Top,Height=54};Controls.Add(head);var thLabel=new Label{Text="MẪU TÌNH HUỐNG",Left=18,Top=19,Width=145};head.Controls.Add(thLabel);
         scenarios.SetBounds(170,13,360,29);scenarios.DropDownStyle=ComboBoxStyle.DropDownList;scenarios.Items.AddRange(TH);head.Controls.Add(scenarios);
-        var topBar=new Label{Text="Nhập các trường bên dưới rồi bấm LƯU. Dòng Excel được xác minh lại theo CIF + HĐ trước khi ghi.",Left=548,Top=18,Width=420,Height=25,ForeColor=Color.FromArgb(71,89,119)};head.Controls.Add(topBar);
+        var topBar=new Label{Text="Tự điền mẫu → xác nhận → lưu đúng CIF + HĐ trên Excel.",Left=548,Top=18,Width=420,Height=25,ForeColor=Color.FromArgb(71,89,119)};head.Controls.Add(topBar);
         var body=new Panel{Dock=DockStyle.Fill,AutoScroll=true};Controls.Add(body);body.BringToFront();
         var bottom=new Panel{Dock=DockStyle.Bottom,Height=63,BackColor=Color.White};Controls.Add(bottom);bottom.BringToFront();
         var save=new Button{Text="LƯU BÁO CÁO VÀO EXCEL",Width=245,Height=38,BackColor=Color.FromArgb(14,106,192),ForeColor=Color.White,FlatStyle=FlatStyle.Flat,Top=12,Anchor=AnchorStyles.Right|AnchorStyles.Top};save.Left=Width-285;save.FlatAppearance.BorderSize=0;bottom.Controls.Add(save);
@@ -191,7 +191,22 @@ internal sealed class ReportWindow:Form{
                 foreach(string value in PartnerCodes.Of(i))combo.Items.Add(value);
                 codes[i]=combo;input=combo;
             }
-            else {var box=new TextBox{Width=600,Anchor=AnchorStyles.Left|AnchorStyles.Right,Multiline=(i==7||i==8||i==10),Height=(i==7||i==8?70:(i==10?52:27)),ScrollBars=(i==7||i==8||i==10)?ScrollBars.Vertical:ScrollBars.None};boxes[i]=box;input=box;}
+            else {
+                var box=new TextBox{Width=600,Anchor=AnchorStyles.Left|AnchorStyles.Right,Multiline=(i==7||i==8||i==10),Height=(i==7||i==8?70:(i==10?52:27)),ScrollBars=(i==7||i==8||i==10)?ScrollBars.Vertical:ScrollBars.None};
+                // AK/AL: insert PC's TODAY (dd/MM/yyyy) immediately when a note is entered.
+                if(i==7||i==8){
+                    box.TextChanged+=delegate{
+                        if((string)box.Tag=="stamping")return;
+                        string raw=box.Text.TrimStart();
+                        if(raw.Length==0||Regex.IsMatch(raw,@"^\d{2}/\d{2}/\d{4}(?=\s|$)"))return;
+                        string prefix=DateTime.Now.ToString("dd/MM/yyyy",CultureInfo.InvariantCulture)+" ";
+                        int cursor=box.SelectionStart;
+                        box.Tag="stamping";
+                        try{box.Text=prefix+raw;box.SelectionStart=Math.Min(box.TextLength,cursor+prefix.Length);}finally{box.Tag=null;}
+                    };
+                }
+                boxes[i]=box;input=box;
+            }
             lines.RowStyles.Add(new RowStyle(SizeType.AutoSize));var wrap=new Panel{Height=(i==7||i==8?79:(i==10?58:34)),Dock=DockStyle.Fill};input.Dock=DockStyle.Top;wrap.Controls.Add(input);lines.Controls.Add(wrap,1,i);
         }
         scenarios.SelectedIndexChanged+=delegate{ApplyScenario(scenarios.SelectedIndex,phone);};
@@ -202,7 +217,9 @@ internal sealed class ReportWindow:Form{
     void ApplyScenario(int index,string phone){
         if(index<0)return;
         string intro=TH[index].Substring(0,3);string desc=TH[index].Substring(6).Trim();
-        string entry=DateTime.Now.ToString("dd/MM/yyyy HH:mm")+" | CALL "+Util.Phone(phone)+" | "+intro+": "+desc+".";
+        // Prepare a draft without a stale date; stamp it with actual computer time when the user SAVES.
+        string dialed=Util.Phone(phone);
+        string entry=(dialed.Length>0?"CALL "+dialed+" : ":"CALL : ")+intro+" · "+desc+".";
         if(boxes[7]!=null)boxes[7].Text=entry;
         if(boxes[8]!=null)boxes[8].Text=entry;
         // The workbook contains an external-link CACHE for its Code sheet. Use exact cached values.
@@ -218,6 +235,15 @@ internal sealed class ReportWindow:Form{
     void Save(){
         ReportData d=new ReportData();for(int i=0;i<13;i++)d.Text[i]=codes[i]!=null?codes[i].Text.Trim():(boxes[i]==null?"":boxes[i].Text.Trim());
         d.Text[2]=dates[0].Value.ToString("dd/MM/yyyy");d.Text[5]=dates[1].Value.ToString("dd/MM/yyyy");d.Text[4]=amount.Text.Trim();
+        // Any unstamped note is prefixed with the current PC date on Save (a final safety net).
+        DateTime computerNow=DateTime.Now;
+        foreach(int col in new[]{7,8}){
+            string body=(d.Text[col]??"").Trim();
+            if(body.Length==0)continue;
+            // Do not repeat the date if the operator typed an explicit dd/MM/yyyy prefix.
+            if(!Regex.IsMatch(body,@"^\d{2}/\d{2}/\d{4}(?:\s+\d{2}:\d{2})?(?=\s|$)"))
+                d.Text[col]=computerNow.ToString("dd/MM/yyyy",CultureInfo.InvariantCulture)+" "+body;
+        }
         if(String.IsNullOrWhiteSpace(d.Text[3])){
             if(MessageBox.Show(this,"Ô AG chưa có MÃ KẾT QUẢ từ danh mục Code của đối tác. Vẫn lưu nội dung AK/AL và ngày vào Excel (báo cáo còn thiếu mã AG)?","Chưa có mã đối tác",MessageBoxButtons.YesNo,MessageBoxIcon.Warning)!=DialogResult.Yes)return;
         }
@@ -234,7 +260,7 @@ internal sealed class ReportWindow:Form{
 internal sealed class CRM:Form {
     ExcelStore store;ExcelRowDock dock;readonly DataGridView grid=new DataGridView();readonly TextBox search=new TextBox();readonly Label summary=new Label(),fileLabel=new Label();readonly Timer queueTimer=new Timer(); readonly Dictionary<int,Customer> displayed=new Dictionary<int,Customer>();
     public CRM(){
-        Text="BÁCH CRM EXCEL  ·  Sacombank  ·  v0.3";Size=new Size(1370,770);MinimumSize=new Size(1040,650);Font=new Font("Segoe UI",9);BackColor=Color.FromArgb(245,248,252);StartPosition=FormStartPosition.CenterScreen;
+        Text="BÁCH CRM EXCEL  ·  Sacombank  ·  v0.4";Size=new Size(1370,770);MinimumSize=new Size(1040,650);Font=new Font("Segoe UI",9);BackColor=Color.FromArgb(245,248,252);StartPosition=FormStartPosition.CenterScreen;
         var header=new Panel{Dock=DockStyle.Top,Height=74,BackColor=Color.FromArgb(22,40,69)};Controls.Add(header);
         header.Controls.Add(new Label{Text="BÁCH CRM EXCEL",Left=22,Top=13,ForeColor=Color.White,Font=new Font("Segoe UI",18,FontStyle.Bold),AutoSize=true});
         header.Controls.Add(new Label{Text="Quản lý danh sách · CALL EyeBeam · Báo cáo trực tiếp vào Excel · Độc lập FPT",Left=23,Top=49,ForeColor=Color.FromArgb(188,205,225),AutoSize=true});
