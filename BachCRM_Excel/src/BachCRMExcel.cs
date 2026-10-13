@@ -15,7 +15,7 @@ using System.Windows.Forms;
 // The existing Excel worksheet is not modified to add macros or move columns.
 internal sealed class Customer {
     public int Row; public string Contract="",Name="",Cif="",Phone="",Reference="",ReferenceName="",NewPhone="",Area="",Code="",Other="";
-    public decimal Debt; public int Overdue; public bool Reported, YellowRow, Promised, Care;
+    public decimal Debt; public int Overdue; public DateTime? NextAction; public bool Reported, YellowRow, Promised, Care;
 }
 internal static class Settings {
     static string Dir { get {string p=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"BachCRMExcel"); Directory.CreateDirectory(p);return p;} }
@@ -60,6 +60,28 @@ internal static class ReportLogic {
         string detail=Regex.Replace(label??"",@"^TH[1-6]\s*[·:\-]\s*","",RegexOptions.IgnoreCase).Trim().TrimEnd('.');
         string dialed=Util.Phone(phone);
         return (dialed.Length>0?"CALL "+dialed+" : ":"CALL : ")+detail+".";
+    }
+    public static string MergeTodayResults(IEnumerable<string> previous,string current,DateTime reportDay){
+        // AL is a daily activity summary. Keep only the entries from reportDay, older
+        // calendar days are replaced, AK is the immutable long-lived history instead.
+        string prefix=reportDay.ToString("dd/MM/yyyy",CultureInfo.InvariantCulture);
+        var lines=new List<string>();var seen=new HashSet<string>(StringComparer.Ordinal);
+        foreach(string old in previous??Enumerable.Empty<string>()){
+            string[] items=(old??"").Replace("\r\n","\n").Replace('\r','\n').Split('\n');
+            bool currentDay=false;
+            foreach(string line in items){
+                var t=line.Trim();if(t.Length==0)continue;
+                var match=Regex.Match(t,@"^(\d{2}/\d{2}/\d{4})(?=\s|$)");
+                if(match.Success){currentDay=match.Groups[1].Value==prefix;}
+                if(currentDay&&seen.Add(t))lines.Add(t);
+            }
+        }
+        foreach(string line in (current??"").Replace("\r\n","\n").Replace('\r','\n').Split('\n')){
+            var t=line.Trim();if(t.Length>0&&seen.Add(t))lines.Add(t);
+        }
+        string answer=String.Join("\n",lines);
+        if(answer.Length>32767)throw new InvalidDataException("Báo cáo AL vượt giới hạn 32.767 ký tự Excel.");
+        return answer;
     }
     // Join nonempty, distinct history lines across ALL contracts of one customer.
     // Existing notes are never deleted; duplicates already copied to other contracts are collapsed.
@@ -114,6 +136,23 @@ internal static class CareLogic {
         return source.GroupBy(x=>x.Cif,StringComparer.OrdinalIgnoreCase)
             .Where(g=>g.Any(NeedsCare)).Select(g=>g.OrderBy(x=>x.Row).First()).OrderBy(x=>x.Row).ToList();
     }
+}
+internal static class CareSortLogic {
+    public static DateTime? Earliest(IEnumerable<Customer> group){
+        var dates=group.Where(x=>x.NextAction.HasValue).Select(x=>x.NextAction.Value).ToList();
+        return dates.Count==0?(DateTime?)null:dates.Min();
+    }
+    public static bool Urgent(DateTime? date,DateTime today){return date.HasValue&&date.Value.Date<=today.Date.AddDays(3);}
+    // Manual yellow rows take precedence; within that tier deadlines are ordered earliest first.
+    public static IEnumerable<IGrouping<string,Customer>> Sort(IEnumerable<IGrouping<string,Customer>> groups,DateTime today){
+        return groups.OrderByDescending(g=>g.Any(x=>x.YellowRow))
+                     .ThenBy(g=>Earliest(g).HasValue?0:1)
+                     .ThenBy(g=>Earliest(g)??DateTime.MaxValue)
+                     .ThenBy(g=>g.Min(x=>x.Row));
+    }
+}
+internal sealed class FastDataGridView:DataGridView {
+    public FastDataGridView(){DoubleBuffered=true;}
 }
 internal sealed class ReferenceSession {
     public string Cif,Contract,FirstPhone,RefPhone,RefName;
@@ -199,43 +238,32 @@ internal sealed class ExcelStore: IDisposable {
     dynamic xl,book,sheet;bool ownExcel;
     public string PathName {get;private set;}
     public List<Customer> Customers {get;private set;}
-    public bool ReadOnly {get{return (bool)book.ReadOnly;}}
+    public bool ReadOnly {get{if(book!=null)return (bool)book.ReadOnly;return (File.GetAttributes(PathName)&FileAttributes.ReadOnly)!=0;}}
     public ExcelStore(string path){
         if(!File.Exists(path))throw new FileNotFoundException("Không tìm thấy file Excel",path);
-        PathName=System.IO.Path.GetFullPath(path);Customers=new List<Customer>();
+        PathName=System.IO.Path.GetFullPath(path);
+        // All list/display data is loaded directly from ZIP/XML in one read; no Excel COM calls
+        // or per-row colour queries while the operator is browsing the CRM.
+        Customers=FastXlsxReader.Load(PathName);
+    }
+    public void Load(){Customers=FastXlsxReader.Load(PathName);}
+    void EnsureExcel(){
+        if(book!=null)return;
         try{
-            try{ xl=Marshal.GetActiveObject("Excel.Application");}catch(COMException ex){if(ExcelComBusyFilter.IsBusy(ex))throw;}catch{}
-            if(xl!=null){int n=(int)xl.Workbooks.Count;for(int i=1;i<=n;i++){dynamic candidate=xl.Workbooks[i];if(String.Equals(Util.S(candidate.FullName),PathName,StringComparison.OrdinalIgnoreCase)){book=candidate;break;}}}
-            if(book==null){xl=Activator.CreateInstance(Type.GetTypeFromProgID("Excel.Application"));ownExcel=true;xl.Visible=false;xl.DisplayAlerts=false;book=xl.Workbooks.Open(PathName,0,false);}
-            // Fixed workbook contains hidden Code as the first worksheet; data is Sheet1.
-            try{sheet=book.Worksheets["Sheet1"];}catch{throw new InvalidDataException("Không thấy sheet dữ liệu Sheet1 trong file Excel Sacombank.");}
-            string header=Util.S(sheet.Cells[5,2].Value2)+"|"+Util.S(sheet.Cells[5,5].Value2)+"|"+Util.S(sheet.Cells[5,29].Value2)+"|"+Util.S(sheet.Cells[5,30].Value2);
-            if(!header.Contains("Số HĐ")||!header.Contains("CIF")||!header.Contains("Ngày PL")||!header.Contains("Contact mode"))throw new InvalidDataException("Không đúng mẫu Excel Sacombank đã sửa (B=Số HĐ, E=CIF, AC=Ngày PL, AD=Contact mode).");
-            Load();
+            try{xl=Marshal.GetActiveObject("Excel.Application");}catch(COMException ex){if(ExcelComBusyFilter.IsBusy(ex))throw;}catch{}
+            if(xl!=null){int n=(int)xl.Workbooks.Count;for(int i=1;i<=n;i++){
+                dynamic candidate=xl.Workbooks[i];if(String.Equals(Util.S(candidate.FullName),PathName,StringComparison.OrdinalIgnoreCase)){book=candidate;break;}
+            }}
+            if(book==null){
+                xl=Activator.CreateInstance(Type.GetTypeFromProgID("Excel.Application"));ownExcel=true;
+                xl.Visible=false;xl.DisplayAlerts=false;book=xl.Workbooks.Open(PathName,0,false);
+            }
+            try{sheet=book.Worksheets["Sheet1"];}
+            catch{throw new InvalidDataException("Không thấy Sheet1 trong Excel Sacombank.");}
         }catch{Dispose();throw;}
     }
-    public void Load(){
-        Customers.Clear();int last=(int)sheet.Cells[(int)sheet.Rows.Count,2].End(-4162).Row;
-        if(last<6)return;if(last>100000)throw new InvalidDataException("Số dòng dữ liệu vượt mức giới hạn an toàn.");
-        object vals=sheet.Range["A6:AP"+last.ToString(CultureInfo.InvariantCulture)].Value2;
-        object[,] grid=vals as object[,];if(grid==null)throw new InvalidDataException("Không đọc được vùng A6:AP của Excel.");
-        int r0=grid.GetLowerBound(0),c0=grid.GetLowerBound(1);
-        for(int idx=0;idx<=grid.GetUpperBound(0)-r0;idx++){
-            Func<int,string> s=col=>Util.S(grid[r0+idx,c0+col-1]);
-            string contract=s(2),cif=s(5);if(contract.Length==0||cif.Length==0)continue;
-            // D = phone copy, S = original personal phone, Y = reference, AM = new phone.
-            string phone=Util.Phone(s(4));if(phone.Length==0)phone=Util.Phone(s(19));
-            Customer c=new Customer{Row=idx+6,Contract=contract,Cif=cif,Name=s(3),Phone=phone,Reference=s(25),ReferenceName=s(24),NewPhone=s(39),Debt=Util.Money(grid[r0+idx,c0+8-1]),Overdue=(int)Util.Money(grid[r0+idx,c0+11-1]),Area=s(28),Code=s(33),Reported=Enumerable.Range(30,13).Any(j=>s(j).Length>0)};
-            c.Promised=CareLogic.IsPromise(s(33),s(42));
-            // Only the row's leading cells are inspected; never write/change yellow formatting.
-            // Manual yellow fill is authoritative; COM read may be temporarily busy or unavailable.
-            try{c.YellowRow=CareLogic.IsYellow((object)sheet.Cells[c.Row,1].Interior.Color) ||
-                                 CareLogic.IsYellow((object)sheet.Cells[c.Row,5].Interior.Color);}catch(COMException ex){if(!ExcelComBusyFilter.IsBusy(ex)){} }
-            c.Care=c.Promised||c.YellowRow;
-            Customers.Add(c);
-        }
-    }
     public Customer Exact(int row,string cif,string contract){
+        EnsureExcel();
         string b=Util.S(sheet.Cells[row,2].Value2),d=Util.S(sheet.Cells[row,5].Value2);
         if(!String.Equals(b,contract,StringComparison.OrdinalIgnoreCase)||!String.Equals(d,cif,StringComparison.OrdinalIgnoreCase))throw new InvalidOperationException("CIF hoặc Số HĐ tại dòng Excel đã thay đổi. Hủy ghi để tránh nhầm khách.");
         Customer found=Customers.FirstOrDefault(x=>x.Row==row&&x.Cif==cif&&x.Contract==contract);
@@ -251,6 +279,7 @@ internal sealed class ExcelStore: IDisposable {
         return Customers.Count(x=>ReportLogic.SameCif(x.Cif,cif));
     }
     public int SaveReport(Customer c,ReportData d,bool markCare){
+        EnsureExcel();
         if(ReadOnly)throw new InvalidOperationException("File Excel đang ở chế độ chỉ đọc. Đóng file xung đột rồi mở lại CRM.");
         Exact(c.Row,c.Cif,c.Contract);
         // The report belongs to the customer CIF. Every distinct contract must get the same
@@ -277,6 +306,12 @@ internal sealed class ExcelStore: IDisposable {
         // Read history only for contracts belonging to this exact CIF.
         string history=ReportLogic.MergeHistory(targets.Select(x=>Util.S((object)sheet.Cells[x.Row,37].Value2)), d.Text[7]);
         if(!String.IsNullOrWhiteSpace(history))prepared[7]=history;
+        DateTime reportDay=DateTime.Today;
+        DateTime parsedDay;
+        if(DateTime.TryParseExact(d.Text[2],"dd/MM/yyyy",CultureInfo.InvariantCulture,DateTimeStyles.None,out parsedDay))reportDay=parsedDay.Date;
+        string today=ReportLogic.MergeTodayResults(targets.Select(x=>Util.S((object)sheet.Cells[x.Row,38].Value2)),d.Text[8],reportDay);
+        if(today.Length>0)prepared[8]=today;
+
 
         string directory=System.IO.Path.Combine(System.IO.Path.GetDirectoryName(PathName),"BachCRMExcel_Backup");Directory.CreateDirectory(directory);
         string dest=System.IO.Path.Combine(directory,System.IO.Path.GetFileNameWithoutExtension(PathName)+"_"+DateTime.Now.ToString("yyyyMMdd_HHmmss_fff")+".xlsx");
@@ -314,12 +349,71 @@ internal sealed class ExcelStore: IDisposable {
             target.Promised=target.Promised||CareLogic.IsPromise(d.Text[3],d.Text[12]);
             if(markCare)target.YellowRow=true;
             target.Care=target.Promised||target.YellowRow;
+            DateTime next;
+            if(DateTime.TryParseExact(d.Text[5],"dd/MM/yyyy",CultureInfo.InvariantCulture,DateTimeStyles.None,out next))target.NextAction=next.Date;
         }
         return targets.Count;
     }
-    public void ShowExcel(){try{xl.Visible=true;book.Activate();sheet.Activate();}catch{}}
-    public Customer SelectedExcelCustomer(){
+    // Review the original report fields (including unsaved Excel changes) before editing.
+    public string[] ReadReport(Customer c){
+        Exact(c.Row,c.Cif,c.Contract);
+        object[,] raw=(object[,])sheet.Range["AD"+c.Row+":AP"+c.Row].Value2;
+        var arr=new string[13];int r=raw.GetLowerBound(0),k=raw.GetLowerBound(1);
+        for(int i=0;i<13;i++){
+            object v=raw[r,k+i];
+            if(v!=null&&(i==2||i==5)){
+                double oa;
+                if(double.TryParse(Util.S(v),NumberStyles.Any,CultureInfo.InvariantCulture,out oa)&&oa>30000&&oa<100000){
+                    arr[i]=DateTime.FromOADate(oa).ToString("dd/MM/yyyy",CultureInfo.InvariantCulture);continue;
+                }
+            }
+            arr[i]=Util.S(v);
+        }
+        return arr;
+    }
+    public int CorrectReport(Customer c,string[] oldValues,string[] edited){
+        EnsureExcel();if(ReadOnly)throw new InvalidOperationException("Excel đang chỉ đọc.");
+        if(oldValues==null||edited==null||oldValues.Length!=13||edited.Length!=13)throw new ArgumentException("Thiếu dữ liệu báo cáo.");
+        var changed=Enumerable.Range(0,13).Where(i=>!String.Equals(oldValues[i]??"",edited[i]??"",StringComparison.Ordinal)).ToArray();
+        if(changed.Length==0)return 0;
+        var targets=Customers.Where(x=>ReportLogic.SameCif(x.Cif,c.Cif)).ToList();
+        foreach(var target in targets)Exact(target.Row,target.Cif,target.Contract);
+        var prepared=new Dictionary<int,object>();
+        foreach(int i in changed){
+            string val=edited[i]??"";
+            if(val.Length>32767)throw new InvalidDataException("Ô Excel vượt giới hạn ký tự.");
+            if((i==2||i==5)&&val.Length>0){DateTime date;
+                if(!DateTime.TryParseExact(val,"dd/MM/yyyy",CultureInfo.InvariantCulture,DateTimeStyles.None,out date))throw new InvalidDataException("Ngày phải theo dd/MM/yyyy.");
+                prepared[i]=date.ToOADate();
+            }else if(i==4&&val.Length>0){decimal money;
+                if(!decimal.TryParse(val,NumberStyles.Any,new CultureInfo("vi-VN"),out money))throw new InvalidDataException("Số tiền không hợp lệ.");
+                prepared[i]=(double)money;
+            }else prepared[i]=val;
+        }
+        // Never turn an edit into a new activity: existing AK/AL text is corrected in place.
+        string dir=Path.Combine(Path.GetDirectoryName(PathName),"BachCRMExcel_Backup");Directory.CreateDirectory(dir);
+        string dest=Path.Combine(dir,Path.GetFileNameWithoutExtension(PathName)+"_SUA_"+DateTime.Now.ToString("yyyyMMdd_HHmmss_fff")+".xlsx");
+        book.SaveCopyAs(dest);
         try{
+            foreach(var target in targets){
+                object[,] row=(object[,])sheet.Range["AD"+target.Row+":AP"+target.Row].Formula;
+                int a=row.GetLowerBound(0),b=row.GetLowerBound(1);
+                foreach(var item in prepared)row[a,b+item.Key]=item.Value;
+                sheet.Range["AD"+target.Row+":AP"+target.Row].Formula=row;
+            }
+            book.Save();
+        }catch(Exception ex){throw new IOException("Không hoàn tất sửa báo cáo. Kiểm tra bản sao: "+dest+". "+ex.Message,ex);}
+        foreach(var target in targets){
+            if(prepared.ContainsKey(3))target.Code=edited[3];
+            if(prepared.ContainsKey(5)){DateTime d;if(DateTime.TryParseExact(edited[5],"dd/MM/yyyy",CultureInfo.InvariantCulture,DateTimeStyles.None,out d))target.NextAction=d;}
+            target.Promised=CareLogic.IsPromise(target.Code,prepared.ContainsKey(12)?edited[12]:"");
+            target.Care=target.YellowRow||target.Promised;
+        }
+        return targets.Count;
+    }
+    public void ShowExcel(){try{EnsureExcel();xl.Visible=true;book.Activate();sheet.Activate();}catch(Exception e){throw new InvalidOperationException("Không mở được Excel: "+e.Message,e);}}
+    public Customer SelectedExcelCustomer(){
+        try{EnsureExcel();
             if(xl==null||book==null||sheet==null)return null;
             dynamic activeBook=xl.ActiveWorkbook;
             if(!String.Equals(Util.S(activeBook.FullName),PathName,StringComparison.OrdinalIgnoreCase))return null;
@@ -335,7 +429,7 @@ internal sealed class ExcelStore: IDisposable {
     [StructLayout(LayoutKind.Sequential)] public struct RECT{public int Left,Top,Right,Bottom;}
     public bool TryExcelBounds(out System.Drawing.Rectangle bounds){
         bounds=System.Drawing.Rectangle.Empty;
-        try{
+        try{EnsureExcel();
             if(xl==null)return false;
             IntPtr hwnd=new IntPtr(Convert.ToInt64(xl.Hwnd));
             RECT r;if(hwnd==IntPtr.Zero||!GetWindowRect(hwnd,out r))return false;
@@ -378,7 +472,7 @@ internal sealed class ReportWindow:Form{
     public ReportWindow(ExcelStore s,Customer customer,string phone,int firstCallScenario=-1,string refPhone="",string refName=""){
         store=s;c=customer;firstPhone=phone;firstScenario=firstCallScenario;referencePhone=Util.Phone(refPhone);referenceName=refName??"";Text="BÁCH CRM EXCEL  |  GHI BÁO CÁO VÀO EXCEL";Font=new Font("Segoe UI",9);Size=new Size(1000,840);MinimumSize=new Size(870,680);StartPosition=FormStartPosition.CenterScreen;TopMost=true;BackColor=Color.FromArgb(246,248,252);
         var title=new Label{Text=c.Name+"   ·   CIF "+c.Cif+"   ·   HĐ đang gọi "+c.Contract+"   ·   Đồng bộ "+store.CustomerContractCount(c.Cif)+" hợp đồng",Font=new Font("Segoe UI",11,FontStyle.Bold),ForeColor=Color.FromArgb(24,45,78),Dock=DockStyle.Top,Height=43,Padding=new Padding(18,12,0,0)};Controls.Add(title);
-        var warning=new Label{Text="Chọn TH1–TH6: AK cộng dồn lịch sử, AL chỉ ghi lần mới nhất; tất cả hợp đồng cùng CIF nhận báo cáo. Kiểm tra trước khi lưu.",ForeColor=Color.DarkRed,Dock=DockStyle.Top,Height=39,Padding=new Padding(18,6,5,3)};Controls.Add(warning);
+        var warning=new Label{Text="Chọn TH1–TH6: AK cộng dồn lịch sử, AL cộng dồn trong ngày (ngày mới thay thế); tất cả hợp đồng cùng CIF nhận báo cáo. Kiểm tra trước khi lưu.",ForeColor=Color.DarkRed,Dock=DockStyle.Top,Height=39,Padding=new Padding(18,6,5,3)};Controls.Add(warning);
         var head=new Panel{Dock=DockStyle.Top,Height=54};Controls.Add(head);var thLabel=new Label{Text="MẪU TÌNH HUỐNG",Left=18,Top=19,Width=145};head.Controls.Add(thLabel);
         scenarios.SetBounds(170,13,360,29);scenarios.DropDownStyle=ComboBoxStyle.DropDownList;scenarios.Items.AddRange(TH);head.Controls.Add(scenarios);
         var topBar=new Label{Text="Tự điền mẫu → xác nhận → cập nhật mọi hợp đồng cùng CIF trên Excel.",Left=548,Top=18,Width=420,Height=25,ForeColor=Color.FromArgb(71,89,119)};head.Controls.Add(topBar);
@@ -503,13 +597,66 @@ internal sealed class ReportWindow:Form{
         catch(Exception ex){MessageBox.Show(this,"Không thể lưu báo cáo: "+ex.Message,"Lỗi",MessageBoxButtons.OK,MessageBoxIcon.Error);}
     }
 }
+// Intentional correction of an existing report. Unlike a new call, editing never
+// creates a new AK/AL entry; every amended field is mirrored to this CIF's contracts.
+internal sealed class ReviewReportWindow:Form {
+    readonly ExcelStore store;readonly Customer customer;readonly string[] original;
+    readonly TextBox[] inputs=new TextBox[13];readonly Button save=new Button(),enable=new Button();
+    bool editing=false;
+    static readonly string[] Names={"AD · Kênh liên lạc","AE · Người được liên lạc","AF · Ngày liên lạc","AG · Mã kết quả","AH · Giá trị cam kết","AI · Ngày hành động tiếp theo","AJ · Giải pháp tiếp theo","AK · Lịch sử thu nợ (toàn bộ)","AL · Báo cáo kết quả trong ngày","AM · SĐT mới","AN · Thông tin mới","AO · Tình trạng tài sản","AP · Phân loại KH"};
+    public ReviewReportWindow(ExcelStore s,Customer c){
+        store=s;customer=c;original=s.ReadReport(c);
+        Text="XEM / SỬA BÁO CÁO · "+c.Name;Size=new Size(940,790);
+        MinimumSize=new Size(780,620);StartPosition=FormStartPosition.CenterParent;
+        Font=new Font("Segoe UI",9);BackColor=Color.FromArgb(245,248,252);
+        var header=new Label{Dock=DockStyle.Top,Height=70,Padding=new Padding(18,10,12,4),
+            Text=c.Name+"  ·  CIF "+c.Cif+"  ·  "+s.CustomerContractCount(c.Cif)+" hợp đồng cùng CIF\nChế độ XEM, chỉ khi chọn SỬA mới có thể thay đổi báo cáo cũ."};
+        Controls.Add(header);
+        var bottom=new Panel{Dock=DockStyle.Bottom,Height=76,BackColor=Color.White};Controls.Add(bottom);
+        enable.SetBounds(16,18,195,37);enable.Text="BẬT CHỈNH SỬA";bottom.Controls.Add(enable);
+        save.SetBounds(550,18,210,37);save.Text="LƯU SỬA BÁO CÁO";
+        save.BackColor=Color.FromArgb(24,103,187);save.ForeColor=Color.White;
+        save.Enabled=false;bottom.Controls.Add(save);
+        var exit=new Button{Text="ĐÓNG",Left=770,Top=18,Width=125,Height=37};bottom.Controls.Add(exit);
+        exit.Click+=delegate{Close();};
+        bottom.Resize+=delegate{save.Left=Math.Max(230,bottom.Width-355);exit.Left=bottom.Width-137;};
+        var scroll=new Panel{Dock=DockStyle.Fill,AutoScroll=true};Controls.Add(scroll);scroll.BringToFront();
+        var rows=new TableLayoutPanel{Dock=DockStyle.Top,AutoSize=true,Padding=new Padding(14,8,14,14),ColumnCount=2,RowCount=13};
+        rows.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute,255));rows.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,100));
+        scroll.Controls.Add(rows);
+        for(int i=0;i<13;i++){
+            rows.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            var lab=new Label{Text=Names[i],Width=250,Height=30,TextAlign=ContentAlignment.MiddleLeft};rows.Controls.Add(lab,0,i);
+            var field=new TextBox{Text=original[i],Multiline=(i==7||i==8||i==10),ReadOnly=true,
+                ScrollBars=(i==7||i==8||i==10)?ScrollBars.Vertical:ScrollBars.None,Dock=DockStyle.Top,
+                Height=(i==7?125:i==8?85:i==10?56:29)};
+            field.BackColor=Color.White;inputs[i]=field;
+            var holder=new Panel{Height=field.Height+6,Dock=DockStyle.Fill};holder.Controls.Add(field);rows.Controls.Add(holder,1,i);
+        }
+        enable.Click+=delegate{
+            if(editing)return;
+            if(MessageBox.Show(this,"Chỉnh sửa sẽ cập nhật đúng các trường đã thay đổi ở TẤT CẢ hợp đồng cùng CIF.\nBản sao Excel được tạo trước khi ghi.\nBạn đồng ý?",
+                "Xác nhận sửa báo cáo cũ",MessageBoxButtons.YesNo,MessageBoxIcon.Question)!=DialogResult.Yes)return;
+            editing=true;enable.Text="ĐANG CHỈNH SỬA";enable.Enabled=false;save.Enabled=true;
+            foreach(var b in inputs)b.ReadOnly=false;
+        };
+        save.Click+=delegate{
+            var current=inputs.Select(x=>x.Text.Trim()).ToArray();
+            if(MessageBox.Show(this,"Lưu những trường đã chỉnh sửa cho "+store.CustomerContractCount(customer.Cif)+" hợp đồng cùng CIF?\nĐây là SỬA BÁO CÁO CŨ, không tạo cuộc gọi mới.",
+                "Xác nhận lưu",MessageBoxButtons.YesNo,MessageBoxIcon.Warning)!=DialogResult.Yes)return;
+            try{int count=store.CorrectReport(customer,original,current);Tag=count;DialogResult=DialogResult.OK;Close();}
+            catch(Exception ex){MessageBox.Show(this,"Không thể lưu sửa đổi: "+ex.Message,"Lỗi",MessageBoxButtons.OK,MessageBoxIcon.Error);}
+        };
+    }
+}
+
 internal sealed class CRM:Form {
-    ExcelStore store;ExcelRowDock dock;readonly DataGridView grid=new DataGridView();readonly TextBox search=new TextBox();readonly Label summary=new Label(),fileLabel=new Label();readonly Timer queueTimer=new Timer(); readonly Dictionary<int,Customer> displayed=new Dictionary<int,Customer>();
-    readonly Dictionary<int,string> groupHeaders=new Dictionary<int,string>();
+    ExcelStore store;ExcelRowDock dock;readonly DataGridView grid=new FastDataGridView();readonly TextBox search=new TextBox();readonly Label summary=new Label(),fileLabel=new Label();readonly Timer queueTimer=new Timer(); readonly Dictionary<int,Customer> displayed=new Dictionary<int,Customer>();
+    readonly Dictionary<int,string> groupHeaders=new Dictionary<int,string>(); readonly Timer searchTimer=new Timer();
     readonly Dictionary<string,bool> expanded=new Dictionary<string,bool>{{"care",true},{"pending",true},{"done",false}};
     ReferenceSession pendingReference;
     public CRM(){
-        Text="BÁCH CRM EXCEL  ·  Sacombank  ·  v1.0";Size=new Size(1370,770);MinimumSize=new Size(1040,650);Font=new Font("Segoe UI",9);BackColor=Color.FromArgb(245,248,252);StartPosition=FormStartPosition.CenterScreen;
+        Text="BÁCH CRM EXCEL  ·  Sacombank  ·  v1.2";Size=new Size(1370,770);MinimumSize=new Size(1040,650);Font=new Font("Segoe UI",9);BackColor=Color.FromArgb(245,248,252);StartPosition=FormStartPosition.CenterScreen;
         var header=new Panel{Dock=DockStyle.Top,Height=74,BackColor=Color.FromArgb(22,40,69)};Controls.Add(header);
         header.Controls.Add(new Label{Text="BÁCH CRM EXCEL",Left=22,Top=13,ForeColor=Color.White,Font=new Font("Segoe UI",18,FontStyle.Bold),AutoSize=true});
         header.Controls.Add(new Label{Text="Quản lý danh sách · CALL EyeBeam · Báo cáo trực tiếp vào Excel · Độc lập FPT",Left=23,Top=49,ForeColor=Color.FromArgb(188,205,225),AutoSize=true});
@@ -518,7 +665,8 @@ internal sealed class CRM:Form {
         var reload=MakeButton("TẢI LẠI",183,11,106,false);reload.Click+=delegate{Open(Settings.WorkbookPath);};tools.Controls.Add(reload);
         var openExcel=MakeButton("MỞ FILE EXCEL",301,11,145,false);openExcel.Click+=delegate{if(store!=null)store.ShowExcel();};tools.Controls.Add(openExcel);
         var report=MakeButton("NÚT TRÊN EXCEL",458,11,161,true);report.Click+=delegate{ToggleExcelDock();};tools.Controls.Add(report);
-        tools.Controls.Add(new Label{Text="Tìm CIF / HĐ / tên / SĐT",Left=639,Top=17,Width=165,Height=24});search.SetBounds(800,12,300,30);tools.Controls.Add(search);search.TextChanged+=delegate{RefreshRows();};
+        tools.Controls.Add(new Label{Text="Tìm CIF / HĐ / tên / SĐT",Left=639,Top=17,Width=165,Height=24});search.SetBounds(800,12,300,30);tools.Controls.Add(search);searchTimer.Interval=170;searchTimer.Tick+=delegate{searchTimer.Stop();RefreshRows();};
+        search.TextChanged+=delegate{searchTimer.Stop();searchTimer.Start();};
         fileLabel.SetBounds(20,55,1120,20);fileLabel.ForeColor=Color.FromArgb(90,103,125);tools.Controls.Add(fileLabel);
         var foot=new Panel{Dock=DockStyle.Bottom,Height=39,BackColor=Color.FromArgb(229,235,245)};Controls.Add(foot);summary.SetBounds(20,11,1230,22);summary.ForeColor=Color.FromArgb(34,55,90);foot.Controls.Add(summary);
         grid.Dock=DockStyle.Fill;grid.BackgroundColor=Color.White;grid.BorderStyle=BorderStyle.None;grid.AllowUserToAddRows=false;grid.AllowUserToDeleteRows=false;grid.ReadOnly=true;grid.MultiSelect=false;grid.SelectionMode=DataGridViewSelectionMode.FullRowSelect;grid.RowHeadersVisible=false;grid.AllowUserToResizeRows=false;grid.RowTemplate.Height=36;grid.EnableHeadersVisualStyles=false;grid.ColumnHeadersHeight=43;grid.ColumnHeadersDefaultCellStyle.BackColor=Color.FromArgb(224,233,247);grid.ColumnHeadersDefaultCellStyle.ForeColor=Color.FromArgb(24,48,85);grid.ColumnHeadersDefaultCellStyle.Font=new Font("Segoe UI",9,FontStyle.Bold);
@@ -532,8 +680,13 @@ internal sealed class CRM:Form {
                 expanded[group]=!expanded[group];RefreshRows();
             }
         };
-        grid.CellDoubleClick+=delegate(object sender,DataGridViewCellEventArgs e){if(e.RowIndex>=0&&e.ColumnIndex>=0&&e.ColumnIndex!=grid.Columns["act"].Index&&GetCustomer(e.RowIndex)!=null)OpenReport(GetCustomer(e.RowIndex),"");};
-        queueTimer.Interval=650;queueTimer.Tick+=delegate{PollReports();};queueTimer.Start();Shown+=delegate{if(File.Exists(Settings.WorkbookPath))Open(Settings.WorkbookPath);else fileLabel.Text="Chọn file Sacombank Excel để bắt đầu. App không tự nhập hồ sơ vào FPT.";};
+        grid.CellDoubleClick+=delegate(object sender,DataGridViewCellEventArgs e){
+            Customer selected=e.RowIndex>=0?GetCustomer(e.RowIndex):null;
+            if(selected==null||e.ColumnIndex<0||e.ColumnIndex==grid.Columns["act"].Index)return;
+            if(CareLogic.NeedsCare(selected)&&store.Customers.Any(x=>x.Cif==selected.Cif&&x.Reported))ReviewReport(selected);
+            else OpenReport(selected,"");
+        };
+        queueTimer.Interval=650;queueTimer.Tick+=delegate{PollReports();};queueTimer.Start();Shown+=delegate{if(File.Exists(Settings.WorkbookPath))BeginInvoke(new Action(()=>Open(Settings.WorkbookPath)));else fileLabel.Text="Chọn file Sacombank Excel để bắt đầu. App không tự nhập hồ sơ vào FPT.";};
     }
     Button MakeButton(string t,int left,int top,int width,bool primary){var b=new Button{Text=t,Left=left,Top=top,Width=width,Height=33,FlatStyle=FlatStyle.Flat,BackColor=primary?Color.FromArgb(28,102,183):Color.FromArgb(235,241,249),ForeColor=primary?Color.White:Color.FromArgb(30,55,86)};b.FlatAppearance.BorderSize=0;return b;}
     void AddCol(string name,string title,int width){grid.Columns.Add(new DataGridViewTextBoxColumn{Name=name,HeaderText=title,Width=width,SortMode=DataGridViewColumnSortMode.NotSortable});}
@@ -586,16 +739,19 @@ internal sealed class CRM:Form {
             List<Customer> filtered=store.Customers.Where(c=>term.Length==0 ||
                 (c.Cif+" "+c.Contract+" "+c.Name+" "+c.Phone+" "+c.Reference+" "+c.ReferenceName).IndexOf(term,StringComparison.OrdinalIgnoreCase)>=0).ToList();
             HashSet<string> careCifs=new HashSet<string>(CareLogic.UniqueCare(store.Customers).Select(x=>x.Cif),StringComparer.OrdinalIgnoreCase);
-            var care=filtered.Where(x=>careCifs.Contains(x.Cif)).GroupBy(x=>x.Cif,StringComparer.OrdinalIgnoreCase)
-                .Select(g=>g.OrderBy(x=>x.Row).First()).ToList();
+            var careGroups=filtered.Where(x=>careCifs.Contains(x.Cif)).GroupBy(x=>x.Cif,StringComparer.OrdinalIgnoreCase);
+            var care=CareSortLogic.Sort(careGroups,DateTime.Today)
+                .Select(g=>g.OrderByDescending(x=>x.YellowRow).ThenBy(x=>x.Row).First()).ToList();
             var remaining=filtered.Where(x=>!careCifs.Contains(x.Cif)).ToList();
             var pending=remaining.Where(x=>!x.Reported).ToList();
             var done=remaining.Where(x=>x.Reported).ToList();
             AddGroupHeader("care","CẦN PHẢI CARE  ·  "+care.Count+" KH",Color.FromArgb(240,229,170));
             if(expanded["care"])foreach(Customer c in care){
                 List<Customer> all=store.Customers.Where(x=>ReportLogic.SameCif(x.Cif,c.Cif)).ToList();
-                AddCustomerRow(c,all.Count>1?c.Name+"  ("+all.Count+" HĐ)":c.Name,
-                    all.Sum(x=>x.Debt),all.Max(x=>x.Overdue),all.Any(x=>x.Reported),true);
+                DateTime? appointment=CareSortLogic.Earliest(all);
+                string dateNote=appointment.HasValue?" · Hẹn "+appointment.Value.ToString("dd/MM"):"";
+                AddCustomerRow(c,(all.Count>1?c.Name+"  ("+all.Count+" HĐ)":c.Name)+dateNote,
+                    all.Sum(x=>x.Debt),all.Max(x=>x.Overdue),all.Any(x=>x.Reported),true,appointment);
             }
             AddGroupHeader("pending","CHƯA BÁO CÁO  ·  "+pending.Count+" HĐ",Color.FromArgb(221,232,249));
             if(expanded["pending"])foreach(Customer c in pending)AddCustomerRow(c,c.Name,c.Debt,c.Overdue,false,false);
@@ -616,14 +772,19 @@ internal sealed class CRM:Form {
         group.Height=33;
         group.Cells["act"]=new DataGridViewTextBoxCell{Value="BẤM +/-"};
     }
-    void AddCustomerRow(Customer c,string label,decimal debt,int overdue,bool reported,bool care){
+    void AddCustomerRow(Customer c,string label,decimal debt,int overdue,bool reported,bool care,DateTime? appointment=null){
         int row=grid.Rows.Add(c.Cif,c.Contract,label,Util.N(debt),overdue,
             Util.Phone(c.Phone).Length>0?Util.Phone(c.Phone):"(thiếu)",c.Area,reported?"Đã ghi":"Chưa ghi");
         displayed[row]=c;
         if(reported)grid.Rows[row].DefaultCellStyle.BackColor=Color.FromArgb(220,247,230);
         else if(care)grid.Rows[row].DefaultCellStyle.BackColor=Color.FromArgb(255,250,225);
         else if(row%2==0)grid.Rows[row].DefaultCellStyle.BackColor=Color.FromArgb(251,253,255);
+        if(care && CareSortLogic.Urgent(appointment,DateTime.Today)){
+            grid.Rows[row].DefaultCellStyle.BackColor=Color.FromArgb(255,219,219);
+            grid.Rows[row].DefaultCellStyle.ForeColor=Color.FromArgb(155,20,30);
+        }
         if(Util.Phone(c.Phone).Length==0)grid.Rows[row].Cells["phone"].Style.ForeColor=Color.DarkRed;
+        if(care&&reported){grid.Rows[row].Cells["result"].Value="Xem / sửa";}
     }
     Customer GetCustomer(int row){Customer c;return displayed.TryGetValue(row,out c)?c:null;}
     Customer Selected(){return grid.CurrentRow==null?null:GetCustomer(grid.CurrentRow.Index);}
@@ -678,6 +839,14 @@ internal sealed class CRM:Form {
         store.ShowExcel();dock=new ExcelRowDock(this,store);dock.FormClosed+=delegate{dock=null;};dock.Show();
     }
     public void ReportCurrentExcel(Customer c){OpenReport(c,"");}
+    void ReviewReport(Customer c){
+        if(c==null||store==null||!CareLogic.NeedsCare(c))return;
+        c=store.Customers.FirstOrDefault(x=>x.Cif==c.Cif&&x.Reported)??c;
+        GridPosition bookmark=CaptureGridPosition();
+        try{using(var window=new ReviewReportWindow(store,c)){
+            if(window.ShowDialog(this)==DialogResult.OK)RefreshRows(bookmark);
+        }}catch(Exception ex){MessageBox.Show(this,"Không xem được báo cáo: "+ex.Message);}
+    }
     void PollReports(){
         if(store==null)return;string[] files;
         try{files=Directory.GetFiles(Settings.RequestDir,"*.req");}catch{return;}
@@ -741,7 +910,7 @@ internal sealed class CRM:Form {
             OpenReport(customer,firstPhone);
         }
     }
-    protected override void OnFormClosed(FormClosedEventArgs e){queueTimer.Stop();if(dock!=null&&!dock.IsDisposed)dock.Close();if(store!=null)store.Dispose();base.OnFormClosed(e);}
+    protected override void OnFormClosed(FormClosedEventArgs e){queueTimer.Stop();searchTimer.Stop();if(dock!=null&&!dock.IsDisposed)dock.Close();if(store!=null)store.Dispose();base.OnFormClosed(e);}
 }
 // Floating one-click button next to Excel's left gutter, following the currently selected row.
 // No VBA, macros, workbook column insertion or permanent workbook modifications.
