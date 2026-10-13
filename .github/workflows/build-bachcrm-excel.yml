@@ -11,6 +11,7 @@ on:
       - bachcrm-excel-v08-excel-busy-endcall-20261013
       - bachcrm-excel-v09-two-stage-care-20261013
       - bachcrm-excel-v10-fast-save-care-bridge-20261013
+      - bachcrm-excel-v12-fast-care-review-20261013
     paths:
       - 'BachCRM_Excel/**'
       - '.github/workflows/build-bachcrm-excel.yml'
@@ -27,8 +28,8 @@ jobs:
           @echo off
           set "fw=%WINDIR%\Microsoft.NET\Framework64\v4.0.30319"
           if not exist "%fw%\csc.exe" set "fw=%WINDIR%\Microsoft.NET\Framework\v4.0.30319"
-          set "refs=/reference:System.dll /reference:System.Core.dll /reference:System.Drawing.dll /reference:System.Windows.Forms.dll /reference:System.Xml.dll /reference:System.Security.dll /reference:Microsoft.CSharp.dll /reference:%fw%\WPF\UIAutomationClient.dll /reference:%fw%\WPF\UIAutomationTypes.dll /reference:%fw%\WPF\WindowsBase.dll"
-          "%fw%\csc.exe" /nologo /target:winexe /platform:anycpu /codepage:65001 /out:"BachCRM_Excel\BachCRMExcel.exe" %refs% "BachCRM_Excel\src\BachCRMExcel.cs"
+          set "refs=/reference:System.dll /reference:System.Core.dll /reference:System.Drawing.dll /reference:System.Windows.Forms.dll /reference:System.Xml.dll /reference:System.IO.Compression.dll /reference:System.IO.Compression.FileSystem.dll /reference:System.Security.dll /reference:Microsoft.CSharp.dll /reference:%fw%\WPF\UIAutomationClient.dll /reference:%fw%\WPF\UIAutomationTypes.dll /reference:%fw%\WPF\WindowsBase.dll"
+          "%fw%\csc.exe" /nologo /target:winexe /platform:anycpu /codepage:65001 /out:"BachCRM_Excel\BachCRMExcel.exe" %refs% "BachCRM_Excel\src\BachCRMExcel.cs" "BachCRM_Excel\src\FastXlsxReader.cs"
           if errorlevel 1 exit /b 1
           "%fw%\csc.exe" /nologo /target:winexe /platform:anycpu /codepage:65001 /out:"BachCRM_Excel\BachCRMExcelBridge.exe" %refs% "BachCRM_Excel\src\BachCRMExcelBridge.cs"
           if errorlevel 1 exit /b 1
@@ -40,8 +41,8 @@ jobs:
           @echo off
           set "fw=%WINDIR%\Microsoft.NET\Framework64\v4.0.30319"
           if not exist "%fw%\csc.exe" set "fw=%WINDIR%\Microsoft.NET\Framework\v4.0.30319"
-          set "refs=/reference:System.dll /reference:System.Core.dll /reference:System.Drawing.dll /reference:System.Windows.Forms.dll /reference:System.Xml.dll /reference:System.Security.dll /reference:Microsoft.CSharp.dll /reference:%fw%\WPF\UIAutomationClient.dll /reference:%fw%\WPF\UIAutomationTypes.dll /reference:%fw%\WPF\WindowsBase.dll"
-          "%fw%\csc.exe" /nologo /target:exe /main:ReportLogicTests /platform:anycpu /codepage:65001 /out:"BachCRM_Excel\ReportLogicTests.exe" %refs% "BachCRM_Excel\src\BachCRMExcel.cs" "BachCRM_Excel\tests\ReportLogicTests.cs"
+          set "refs=/reference:System.dll /reference:System.Core.dll /reference:System.Drawing.dll /reference:System.Windows.Forms.dll /reference:System.Xml.dll /reference:System.IO.Compression.dll /reference:System.IO.Compression.FileSystem.dll /reference:System.Security.dll /reference:Microsoft.CSharp.dll /reference:%fw%\WPF\UIAutomationClient.dll /reference:%fw%\WPF\UIAutomationTypes.dll /reference:%fw%\WPF\WindowsBase.dll"
+          "%fw%\csc.exe" /nologo /target:exe /main:ReportLogicTests /platform:anycpu /codepage:65001 /out:"BachCRM_Excel\ReportLogicTests.exe" %refs% "BachCRM_Excel\src\BachCRMExcel.cs" "BachCRM_Excel\src\FastXlsxReader.cs" "BachCRM_Excel\tests\ReportLogicTests.cs"
           if errorlevel 1 exit /b 1
           "BachCRM_Excel\ReportLogicTests.exe"
           if errorlevel 1 exit /b 1
