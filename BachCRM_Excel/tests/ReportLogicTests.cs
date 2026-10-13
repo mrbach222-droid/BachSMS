@@ -27,6 +27,23 @@ internal class ReportLogicTests {
         var entry=ReportLogic.ScenarioEntry("TH2 · Không nghe máy","911111111");
         Assert(entry=="CALL 0911111111 : Không nghe máy.","Scenario output omits TH number");
         Assert(ReportLogic.MergeHistory(new[]{ak},latest)==ak,"Re-saving identical note avoids duplicates");
+        // UI bookmark identity must survive a complete grid regeneration, including same-CIF contracts.
+        var visible = new Dictionary<int,Customer> {
+            {0,new Customer{Row=6,Cif="A",Contract="HD1"}},
+            {1,new Customer{Row=7,Cif="A",Contract="HD2"}},
+            {2,new Customer{Row=31,Cif="B",Contract="HD3"}},
+            {3,new Customer{Row=32,Cif="B",Contract="HD4"}}
+        };
+        Assert(GridStateLogic.FindIndex(visible,31,0)==2,"Viewport restores selected workbook row after save");
+        Assert(GridStateLogic.FindIndex(visible,7,0)==1,"Viewport restores original top visible workbook row");
+        Assert(GridStateLogic.FindIndex(visible,999,1)==1,"Filtered-out anchor uses bounded fallback");
+        // Original MB template text and recipient mappings, independent of Excel cached Code choices.
+        Assert(MbReportTemplates.Note(0,"0911111111")=="CALL 0911111111 : Thuê bao mất liên lạc, không có tín hiệu kết nối.","MB TH1 verbatim text");
+        Assert(MbReportTemplates.Note(1,"0911111111")=="CALL 0911111111 : Có tín hiệu, không nghe máy.","MB TH2 verbatim text");
+        Assert(MbReportTemplates.Note(3,"0911111111").Contains("Đúng KH, trao đổi về khoản nợ"),"MB TH4 text");
+        Assert(MbReportTemplates.Note(5,"0911111111").Contains("Xác thực đúng KH"),"MB TH6 text");
+        Assert(MbReportTemplates.ContactPerson[0]=="Không gặp ai" && MbReportTemplates.ContactPerson[1]=="Không gặp ai" && MbReportTemplates.ContactPerson[2]=="Không gặp ai","TH1-3 are no answer");
+        Assert(MbReportTemplates.ContactPerson[3]=="Khách hàng" && MbReportTemplates.ContactPerson[4]=="Người khác" && MbReportTemplates.ContactPerson[5]=="Khách hàng","TH4-6 recipients reset correctly");
         Console.WriteLine("ALL TESTS PASSED");
     }
 }
