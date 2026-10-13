@@ -62,6 +62,31 @@ internal class ReportLogicTests {
         Assert(ExcelComBusyFilter.IsBusy(new System.Runtime.InteropServices.COMException("Excel temporarily rejected",unchecked((int)0x80010001))),"RPC_E_CALL_REJECTED is retryable");
         Assert(ExcelComBusyFilter.IsBusy(new System.Runtime.InteropServices.COMException("Excel retry later",unchecked((int)0x8001010A))),"RPC_E_SERVERCALL_RETRYLATER is retryable");
         Assert(!ExcelComBusyFilter.IsBusy(new System.Runtime.InteropServices.COMException("Other COM failure",unchecked((int)0x80004005))),"Non-busy COM failures are not retried");
+        // No duplicates: every care CIF appears once even with many contracts.
+        var careData=new List<Customer>{
+            new Customer{Row=6,Cif="100",Contract="HD1",Promised=true,Reported=true},
+            new Customer{Row=7,Cif="100",Contract="HD2",Reported=true},
+            new Customer{Row=8,Cif="200",Contract="HD3",YellowRow=true},
+            new Customer{Row=9,Cif="200",Contract="HD4",YellowRow=false},
+            new Customer{Row=10,Cif="300",Contract="HD5",Reported=true},
+            new Customer{Row=11,Cif="400",Contract="HD6"}
+        };
+        var chosen=CareLogic.UniqueCare(careData);
+        Assert(chosen.Count==2 && chosen[0].Cif=="100" && chosen[1].Cif=="200", "Care group unique by CIF, not agreement count");
+        Assert(!chosen.Any(x=>x.Cif=="300"),"Previously reported without promise/yellow isn't auto care");
+        Assert(CareLogic.IsPromise("Hứa thanh toán",""),"AG promise flags care");
+        Assert(CareLogic.IsPromise("","Call - Có hứa thanh toán"),"AP promise flags care");
+        Assert(CareLogic.IsPromise("","Call - Có hứa hẹn"),"AP alternate promise flags care");
+        Assert(!CareLogic.IsPromise("Không có hứa hẹn",""),"No-promise cannot enter care");
+        Assert(!CareLogic.IsPromise("","Call - Không hứa thanh toán"),"No-promise AP cannot enter care");
+        Assert(CareLogic.IsYellow(65535),"Manual Excel yellow highlight detected");
+        Assert(CareLogic.IsYellow(0xCCF2FF),"Pastel Excel yellow highlight detected");
+        Assert(!CareLogic.IsYellow(0xA9C9F8),"Peach name-column fill is not mistaken for yellow");
+        Assert(!CareLogic.IsYellow(16777215),"Default white is not care highlight");
+        var refSession=new ReferenceSession{Cif="100",Contract="HD1",FirstPhone="0912345678",RefPhone="0987654321",RefName="Anh A",FirstScenario=0};
+        Assert(refSession.Matches("100","HD1","987654321"),"Second hangup matches reference call identity");
+        Assert(!refSession.Matches("100","HD2","0987654321"),"Second hangup does not cross contracts");
+        Assert(!refSession.Matches("200","HD1","0987654321"),"Second hangup does not cross CIFs");
         Console.WriteLine("ALL TESTS PASSED");
     }
 }
