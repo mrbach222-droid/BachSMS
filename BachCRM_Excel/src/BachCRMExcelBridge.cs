@@ -108,7 +108,7 @@ internal sealed class BachCRMExcelBridge : Form {
         number.SetBounds(13,64,334,31);number.Font=new Font("Segoe UI",13,FontStyle.Bold);
         number.ReadOnly=true;number.BackColor=Color.White;number.ForeColor=Color.FromArgb(22,42,73);
         number.BorderStyle=BorderStyle.FixedSingle;number.ShortcutsEnabled=true;
-        startButton.Text="GÁC MÁY → BÁO CÁO";startButton.SetBounds(13,104,181,28);
+        startButton.Text="BÁO CÁO DỰ PHÒNG";startButton.SetBounds(13,104,181,28);
         startButton.BackColor=Color.FromArgb(26,112,205);startButton.ForeColor=Color.White;
         startButton.FlatStyle=FlatStyle.Flat;startButton.FlatAppearance.BorderSize=0;
         stopButton.Text="DỪNG / THOÁT";stopButton.SetBounds(201,104,146,28);
