@@ -13,7 +13,7 @@ using System.Windows.Forms;
 // Companion to the previously working DienBaoCaoMB helper.
 // No modification of the corporate app or telephony files; only documented Windows UI APIs.
 internal sealed class BachCRMExcelBridge : Form {
-    static string carePhone="",careCif="",careContract="";
+    static string carePhone="",careCif="",careContract="",customerName="",referenceName="",callType="customer";
     readonly System.Windows.Forms.Timer careLaunchTimer=new System.Windows.Forms.Timer();
     int careLaunchAttempts=0;
     [DllImport("user32.dll", CharSet=CharSet.Unicode)] static extern int GetWindowText(IntPtr h, StringBuilder s, int max);
@@ -105,6 +105,7 @@ internal sealed class BachCRMExcelBridge : Form {
                 MouseEventData info=(MouseEventData)Marshal.PtrToStructure(lParam,typeof(MouseEventData));
                 IntPtr window=GetAncestor(WindowFromPoint(info.Pt),2);
                 uint pid=0;if(window!=IntPtr.Zero)GetWindowThreadProcessId(window,out pid);
+                if(eyePid==0){var ey=EyeBeam();if(ey!=null)eyePid=ey.Id;}
                 if(pid!=0 && pid==(uint)eyePid){
                     // The saved hang-up target is fast and safe to inspect inside the callback.
                     bool atHangup=IsHangupPoint(window,info.Pt);
@@ -138,19 +139,29 @@ internal sealed class BachCRMExcelBridge : Form {
             if(args[i]=="--phone")carePhone=args[++i];
             else if(args[i]=="--cif")careCif=args[++i];
             else if(args[i]=="--contract")careContract=args[++i];
+            else if(args[i]=="--customer-name")customerName=args[++i];
+            else if(args[i]=="--reference-name")referenceName=args[++i];
+            else if(args[i]=="--call-type")callType=args[++i];
         }
         if(!System.Text.RegularExpressions.Regex.IsMatch(carePhone,@"^0[0-9]{9}$") ||
            !System.Text.RegularExpressions.Regex.IsMatch(careCif,@"^[0-9]{1,30}$") ||
            !System.Text.RegularExpressions.Regex.IsMatch(careContract,@"^[\p{L}0-9_./\-]{1,60}$")){
             MessageBox.Show("Thiếu thông tin CIF/HĐ/SĐT hợp lệ. Hãy bấm TÁC ĐỘNG trong CRM.");return;
         }
+        if(customerName.Length>180||referenceName.Length>180||
+           (callType!="customer"&&callType!="reference")){
+            MessageBox.Show("Tham số tên người được liên lạc không hợp lệ.");return;
+        }
+        // Human-readable names only: no data sent to any remote service.
+        customerName=customerName.Replace("\r", " ").Replace("\n", " ");
+        referenceName=referenceName.Replace("\r", " ").Replace("\n", " ");
         SetProcessDPIAware(); Application.EnableVisualStyles();
         Application.SetCompatibleTextRenderingDefault(false);
         Application.Run(new BachCRMExcelBridge());
     }
     BachCRMExcelBridge(){
         Text="Bách CRM Excel | CALL Bridge";StartPosition=FormStartPosition.Manual;
-        ClientSize=new Size(360,158);MinimumSize=new Size(376,197);MaximumSize=new Size(376,197);
+        ClientSize=new Size(360,194);MinimumSize=new Size(376,233);MaximumSize=new Size(376,233);
         Font=new Font("Segoe UI",9);BackColor=Color.FromArgb(246,248,252);
         FormBorderStyle=FormBorderStyle.FixedSingle;MaximizeBox=false;
         ShowInTaskbar=true;
@@ -159,21 +170,25 @@ internal sealed class BachCRMExcelBridge : Form {
         var bar=new Panel{BackColor=Color.FromArgb(27,44,74),Dock=DockStyle.Top,Height=35};Controls.Add(bar);
         var h=new Label{Text="BÁCH CRM EXCEL  /  EYEBeAM",Left=13,Top=9,Width=290,Height=20,
             ForeColor=Color.White,Font=new Font("Segoe UI",10,FontStyle.Bold)};bar.Controls.Add(h);
-        var n=new Label{Text="SỐ ĐIỆN THOẠI ĐÃ CHỌN",Left=13,Top=43,Width=330,Height=18,
+        var contact=new Label{Text=callType=="reference"?"THAM CHIẾU: "+(String.IsNullOrWhiteSpace(referenceName)?"Chưa có tên":referenceName):
+            "KH: "+(String.IsNullOrWhiteSpace(customerName)?"Chưa có tên":customerName),Left=13,Top=41,Width=334,Height=24,
+            ForeColor=Color.FromArgb(22,60,96),Font=new Font("Segoe UI",9,FontStyle.Bold),AutoEllipsis=true};
+        contact.BorderStyle=BorderStyle.None;
+        var n=new Label{Text=callType=="reference"?"SỐ ĐIỆN THOẠI THAM CHIẾU":"SỐ ĐIỆN THOẠI KHÁCH HÀNG",Left=13,Top=68,Width=330,Height=17,
             ForeColor=Color.FromArgb(92,107,130),Font=new Font("Segoe UI",8,FontStyle.Bold)};
-        number.SetBounds(13,64,334,31);number.Font=new Font("Segoe UI",13,FontStyle.Bold);
+        number.SetBounds(13,89,334,31);number.Font=new Font("Segoe UI",13,FontStyle.Bold);
         number.ReadOnly=true;number.BackColor=Color.White;number.ForeColor=Color.FromArgb(22,42,73);
         number.BorderStyle=BorderStyle.FixedSingle;number.ShortcutsEnabled=true;
-        startButton.Text="BÁO CÁO DỰ PHÒNG";startButton.SetBounds(13,104,181,28);
+        startButton.Text="BÁO CÁO SAU GÁC MÁY";startButton.SetBounds(13,130,181,28);
         startButton.BackColor=Color.FromArgb(26,112,205);startButton.ForeColor=Color.White;
         startButton.FlatStyle=FlatStyle.Flat;startButton.FlatAppearance.BorderSize=0;
-        stopButton.Text="DỪNG / THOÁT";stopButton.SetBounds(201,104,146,28);
+        stopButton.Text="DỪNG / THOÁT";stopButton.SetBounds(201,130,146,28);
         stopButton.FlatStyle=FlatStyle.Flat;stopButton.BackColor=Color.FromArgb(231,236,243);
         stopButton.FlatAppearance.BorderSize=0;
-        status.Text="Đang khởi động tự động...";status.SetBounds(13,138,334,18);
+        status.Text="Đang khởi động tự động...";status.SetBounds(13,169,334,18);
         status.ForeColor=Color.FromArgb(64,89,118);status.Font=new Font("Segoe UI",8);
         status.AutoEllipsis=true;
-        Controls.AddRange(new Control[]{n,number,startButton,stopButton,status});
+        Controls.AddRange(new Control[]{contact,n,number,startButton,stopButton,status});
         var menu=new ContextMenuStrip();
         menu.Items.Add("THỬ điền lại số đang hiển thị vào EyeBeam",null,(sender,e)=>MoveNumberToEyeBeam());
         
@@ -191,7 +206,7 @@ internal sealed class BachCRMExcelBridge : Form {
         clock.Interval=450;clock.Tick+=delegate{if(running){Tick();if(EyeBeam()==null && (DateTime.Now-lastEyeSearch).TotalSeconds>10){lastEyeSearch=DateTime.Now;EnsureEyeBeam();}}};
         clipboardDelay.Interval=45; clipboardDelay.Tick+=CheckClickedClipboard;
         inputPoll.Interval=45;inputPoll.Tick+=delegate{if(running)PollInputs();};
-        Log("Bách CRM Excel v0.8: mouse hook + trạng thái gác máy, hỗ trợ hiệu chỉnh nút đỏ, nút dự phòng báo cáo. Người dùng tự Enter để gọi.");
+        Log("Bách CRM Excel v1.0: tự mở báo cáo khi nhận đúng nút gác máy hoặc trạng thái Active -> Idle. Skin riêng cần hiệu chỉnh nút đỏ một lần; không tự đoán vùng click.");
         careLaunchTimer.Interval=350;
         careLaunchTimer.Tick+=delegate{
             careLaunchAttempts++;
