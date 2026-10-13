@@ -118,14 +118,33 @@ internal sealed class ExcelStore: IDisposable {
     }
 }
 internal sealed class ReportData{public string[] Text=new string[13];}
+internal static class PartnerCodes {
+    static readonly Dictionary<string,List<string>> values=new Dictionary<string,List<string>>(StringComparer.OrdinalIgnoreCase);
+    static PartnerCodes(){
+        string path=Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"BachCRMExcel_Codes.tsv");
+        if(!File.Exists(path))return;
+        foreach(string line in File.ReadAllLines(path,Encoding.UTF8)){
+            int at=line.IndexOf('\t');if(at<1||at+1>=line.Length)continue;
+            string key=line.Substring(0,at),value=line.Substring(at+1).Trim();
+            if(key.Length==0||value.Length==0)continue;
+            List<string> list;if(!values.TryGetValue(key,out list)){list=new List<string>();values[key]=list;}
+            if(!list.Contains(value))list.Add(value);
+        }
+    }
+    public static List<string> Of(int index){
+        string[] columns={"AC","AD","AE","AF","AG","AH","AI","AJ","AK","AL","AM","AN","AO"};
+        List<string> v;return values.TryGetValue(columns[index],out v)?v:new List<string>();
+    }
+    public static bool Known(int index,string value){return Of(index).Contains(value);}
+}
 internal sealed class ReportWindow:Form{
-    readonly Customer c; readonly ExcelStore store;readonly TextBox[] boxes=new TextBox[13];readonly DateTimePicker[] dates=new DateTimePicker[2]; readonly TextBox amount=new TextBox();readonly ComboBox scenarios=new ComboBox();
+    readonly Customer c; readonly ExcelStore store;readonly TextBox[] boxes=new TextBox[13];readonly ComboBox[] codes=new ComboBox[13];readonly DateTimePicker[] dates=new DateTimePicker[2]; readonly TextBox amount=new TextBox();readonly ComboBox scenarios=new ComboBox();
     static readonly string[] Labels={"(1) AC · Kênh liên lạc","(2) AD · Người được liên lạc","(3) AE · Ngày liên lạc","(4) AF · Mã kết quả (theo CODE đối tác)","(5) AG · Giá trị cam kết trả nợ","(6) AH · Ngày hành động tiếp theo","(7) AI · Giải pháp thu nợ tiếp theo","(8) AJ · Lịch sử thu nợ","(9) AK · Báo cáo kết quả làm việc","(10) AL · Số điện thoại mới","(11) AM · Thông tin mới điều tra","(12) AN · Lý do / Tình trạng tài sản","(13) AO · Phân loại khách hàng"};
     static readonly string[] TH={"TH1 · Tắt máy","TH2 · Không nghe máy","TH3 · Sai số","TH4 · Không có hứa hẹn","TH5 · Người khác / Sai số","TH6 · Có hứa hẹn"};
     public ReportWindow(ExcelStore s,Customer customer,string phone){
         store=s;c=customer;Text="BÁCH CRM EXCEL  |  GHI BÁO CÁO VÀO EXCEL";Font=new Font("Segoe UI",9);Size=new Size(1000,840);MinimumSize=new Size(870,680);StartPosition=FormStartPosition.CenterParent;BackColor=Color.FromArgb(246,248,252);
         var title=new Label{Text=c.Name+"   ·   CIF "+c.Cif+"   ·   HĐ "+c.Contract+"   ·   dòng "+c.Row,Font=new Font("Segoe UI",11,FontStyle.Bold),ForeColor=Color.FromArgb(24,45,78),Dock=DockStyle.Top,Height=43,Padding=new Padding(18,12,0,0)};Controls.Add(title);
-        var warning=new Label{Text="Đối tác dùng danh mục CODE nằm ngoài file này. Chọn TH để soạn nội dung; ô AF/AC/AD/AI/AN/AO phải dùng mã thực tế của đối tác.",ForeColor=Color.DarkRed,Dock=DockStyle.Top,Height=39,Padding=new Padding(18,6,5,3)};Controls.Add(warning);
+        var warning=new Label{Text="Đã khôi phục danh mục Code từ bộ nhớ đệm trong Excel. Chọn TH, kiểm tra các giá trị gợi ý theo quy định hiện hành trước khi lưu.",ForeColor=Color.DarkRed,Dock=DockStyle.Top,Height=39,Padding=new Padding(18,6,5,3)};Controls.Add(warning);
         var head=new Panel{Dock=DockStyle.Top,Height=54};Controls.Add(head);var thLabel=new Label{Text="MẪU TÌNH HUỐNG",Left=18,Top=19,Width=145};head.Controls.Add(thLabel);
         scenarios.SetBounds(170,13,360,29);scenarios.DropDownStyle=ComboBoxStyle.DropDownList;scenarios.Items.AddRange(TH);head.Controls.Add(scenarios);
         var topBar=new Label{Text="Nhập các trường bên dưới rồi bấm LƯU. Dòng Excel được xác minh lại theo CIF + HĐ trước khi ghi.",Left=548,Top=18,Width=420,Height=25,ForeColor=Color.FromArgb(71,89,119)};head.Controls.Add(topBar);
@@ -139,6 +158,11 @@ internal sealed class ReportWindow:Form{
             Control input;
             if(i==2||i==5){var dt=new DateTimePicker{Format=DateTimePickerFormat.Custom,CustomFormat="dd/MM/yyyy",Width=205,Value=(i==2?DateTime.Today:DateTime.Today.AddDays(1))};dates[i==2?0:1]=dt;input=dt;}
             else if(i==4){amount.Width=240;amount.Text="";input=amount;}
+            else if(i==0||i==1||i==3||i==6||i==11||i==12){
+                var combo=new ComboBox{Width=600,DropDownStyle=ComboBoxStyle.DropDown,Height=30};
+                foreach(string value in PartnerCodes.Of(i))combo.Items.Add(value);
+                codes[i]=combo;input=combo;
+            }
             else {var box=new TextBox{Width=600,Anchor=AnchorStyles.Left|AnchorStyles.Right,Multiline=(i==7||i==8||i==10),Height=(i==7||i==8?70:(i==10?52:27)),ScrollBars=(i==7||i==8||i==10)?ScrollBars.Vertical:ScrollBars.None};boxes[i]=box;input=box;}
             lines.RowStyles.Add(new RowStyle(SizeType.AutoSize));var wrap=new Panel{Height=(i==7||i==8?79:(i==10?58:34)),Dock=DockStyle.Fill};input.Dock=DockStyle.Top;wrap.Controls.Add(input);lines.Controls.Add(wrap,1,i);
         }
@@ -153,14 +177,26 @@ internal sealed class ReportWindow:Form{
         string entry=DateTime.Now.ToString("dd/MM/yyyy HH:mm")+" | CALL "+Util.Phone(phone)+" | "+intro+": "+desc+".";
         if(boxes[7]!=null)boxes[7].Text=entry;
         if(boxes[8]!=null)boxes[8].Text=entry;
-        // External CODE mapping not supplied: do not invent AF/AI validation codes.
+        // The workbook contains an external-link CACHE for its Code sheet. Use exact cached values.
+        if(codes[0]!=null && codes[0].Text.Length==0)codes[0].Text="Gọi điện thoại di động";
+        if(codes[1]!=null && codes[1].Text.Length==0)codes[1].Text="Khách hàng";
+        if(codes[6]!=null && codes[6].Text.Length==0)codes[6].Text="Gọi điện thoại di động";
+        string[] action={"Không có tín hiệu","Có tín hiệu không bắt máy","Số không tồn tại, số không đúng","","Không phải số KN / Số người thân khác","Hứa thanh toán"};
+        string[] classification={"Call - Tắt máy","Call - Không nghe máy","Call - Sai số","Call - Không hứa thanh toán","Call - Sai số","Call - Có hứa thanh toán"};
+        if(codes[3]!=null)codes[3].Text=action[index];
+        if(codes[12]!=null)codes[12].Text=classification[index];
         if(index==5){amount.Focus();}else{amount.Text="";}
     }
     void Save(){
-        ReportData d=new ReportData();for(int i=0;i<13;i++)d.Text[i]=boxes[i]==null?"":boxes[i].Text.Trim();
+        ReportData d=new ReportData();for(int i=0;i<13;i++)d.Text[i]=codes[i]!=null?codes[i].Text.Trim():(boxes[i]==null?"":boxes[i].Text.Trim());
         d.Text[2]=dates[0].Value.ToString("dd/MM/yyyy");d.Text[5]=dates[1].Value.ToString("dd/MM/yyyy");d.Text[4]=amount.Text.Trim();
         if(String.IsNullOrWhiteSpace(d.Text[3])){
             if(MessageBox.Show(this,"Ô AF chưa có MÃ KẾT QUẢ từ danh mục Code của đối tác. Vẫn lưu nội dung AJ/AK và ngày vào Excel (báo cáo còn thiếu mã AF)?","Chưa có mã đối tác",MessageBoxButtons.YesNo,MessageBoxIcon.Warning)!=DialogResult.Yes)return;
+        }
+        foreach(int col in new[]{0,1,3,6,11,12}){
+            if(d.Text[col].Length>0 && PartnerCodes.Of(col).Count>0 && !PartnerCodes.Known(col,d.Text[col])){
+                if(MessageBox.Show(this,"Giá trị sau chưa có trong danh mục Code đã khôi phục:\n"+Labels[col]+"\n"+d.Text[col]+"\n\nNếu đối tác đã cập nhật danh mục mới, bạn xác nhận giá trị này hợp lệ rồi chọn Yes để lưu.","Xác minh danh mục",MessageBoxButtons.YesNo,MessageBoxIcon.Warning)!=DialogResult.Yes)return;
+            }
         }
         if(d.Text[4].Length>0){decimal m;if(!decimal.TryParse(d.Text[4],NumberStyles.AllowDecimalPoint|NumberStyles.AllowThousands,new CultureInfo("vi-VN"),out m)||m<0){MessageBox.Show(this,"Số tiền cam kết phải là số >= 0, ví dụ 1500000.");return;}}
         try{store.SaveReport(c,d);MessageBox.Show(this,"Đã ghi đúng dòng "+c.Row+" của file Excel và tạo bản sao lưu trước khi ghi.","Hoàn thành",MessageBoxButtons.OK,MessageBoxIcon.Information);DialogResult=DialogResult.OK;Close();}
@@ -170,7 +206,7 @@ internal sealed class ReportWindow:Form{
 internal sealed class CRM:Form {
     ExcelStore store;readonly DataGridView grid=new DataGridView();readonly TextBox search=new TextBox();readonly Label summary=new Label(),fileLabel=new Label();readonly Timer queueTimer=new Timer(); readonly Dictionary<int,Customer> displayed=new Dictionary<int,Customer>();
     public CRM(){
-        Text="BÁCH CRM EXCEL  ·  Sacombank  ·  v0.1";Size=new Size(1370,770);MinimumSize=new Size(1040,650);Font=new Font("Segoe UI",9);BackColor=Color.FromArgb(245,248,252);StartPosition=FormStartPosition.CenterScreen;
+        Text="BÁCH CRM EXCEL  ·  Sacombank  ·  v0.2";Size=new Size(1370,770);MinimumSize=new Size(1040,650);Font=new Font("Segoe UI",9);BackColor=Color.FromArgb(245,248,252);StartPosition=FormStartPosition.CenterScreen;
         var header=new Panel{Dock=DockStyle.Top,Height=74,BackColor=Color.FromArgb(22,40,69)};Controls.Add(header);
         header.Controls.Add(new Label{Text="BÁCH CRM EXCEL",Left=22,Top=13,ForeColor=Color.White,Font=new Font("Segoe UI",18,FontStyle.Bold),AutoSize=true});
         header.Controls.Add(new Label{Text="Quản lý danh sách · CALL EyeBeam · Báo cáo trực tiếp vào Excel · Độc lập FPT",Left=23,Top=49,ForeColor=Color.FromArgb(188,205,225),AutoSize=true});
