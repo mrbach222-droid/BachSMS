@@ -14,13 +14,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Compile Windows sync agent
+        working-directory: BachCRM_Mobile/windows
         shell: pwsh
         run: |
           $compiler = "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
           if (-not (Test-Path $compiler)) { $compiler = "$env:WINDIR\Microsoft.NET\Framework\v4.0.30319\csc.exe" }
-          & $compiler /nologo /target:exe /out:BachCRM_Mobile/windows/BachCrmSyncAgent.exe /reference:System.dll /reference:System.Core.dll /reference:System.Data.dll /reference:System.Web.Extensions.dll /reference:System.Security.dll BachCRM_Mobile/windows/BachCrmSyncAgent.cs
+          & $compiler /nologo /target:exe /out:BachCrmSyncAgent.exe /reference:System.dll /reference:System.Core.dll /reference:System.Data.dll /reference:System.Web.Extensions.dll /reference:System.Security.dll BachCrmSyncAgent.cs
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          if (-not (Test-Path BachCRM_Mobile/windows/BachCrmSyncAgent.exe)) { throw "Missing exe" }
+          if (-not (Test-Path BachCrmSyncAgent.exe)) { throw "Missing exe" }
       - uses: actions/upload-artifact@v4
         with:
           name: BachCRM-Windows-Sync-Agent
