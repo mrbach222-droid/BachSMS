@@ -677,8 +677,13 @@ internal sealed class CRM:Form {
         grid.CellClick+=delegate(object sender,DataGridViewCellEventArgs e){
             string group;
             if(e.RowIndex>=0&&groupHeaders.TryGetValue(e.RowIndex,out group)){
-                expanded[group]=!expanded[group];RefreshRows();
+                expanded[group]=!expanded[group];RefreshRows();return;
             }
+            // One click on the report status opens review for care customers who have been contacted.
+            Customer selected=e.RowIndex>=0?GetCustomer(e.RowIndex):null;
+            if(selected!=null&&e.ColumnIndex==grid.Columns["result"].Index &&
+               CareLogic.NeedsCare(selected)&&store!=null&&store.Customers.Any(x=>x.Cif==selected.Cif&&x.Reported))
+                ReviewReport(selected);
         };
         grid.CellDoubleClick+=delegate(object sender,DataGridViewCellEventArgs e){
             Customer selected=e.RowIndex>=0?GetCustomer(e.RowIndex):null;
