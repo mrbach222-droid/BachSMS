@@ -390,12 +390,19 @@ internal sealed class ReportWindow:Form{
             lines.RowStyles.Add(new RowStyle(SizeType.AutoSize));var wrap=new Panel{Height=(i==7||i==8?79:(i==10?58:34)),Dock=DockStyle.Fill};input.Dock=DockStyle.Top;wrap.Controls.Add(input);lines.Controls.Add(wrap,1,i);
         }
         if(referencePhone.Length>0){
+            thLabel.Text="KẾT QUẢ GỌI TC";
             warning.Text="ĐÃ GỌI THAM CHIẾU: "+(referenceName.Length>0?referenceName:"Chưa có tên (cột X)")+" · "+referencePhone+
                 " | Điền kết quả thật vào dòng CALL tham chiếu; xác nhận AE/AG trước khi lưu.";
             title.Text+="   ·   2 lần gọi";
         }
         scenarios.SelectedIndexChanged+=delegate{ApplyScenario(scenarios.SelectedIndex,phone);};
-        scenarios.SelectedIndex=firstScenario>=0?firstScenario:1;
+        if(referencePhone.Length>0){
+            // Do not assume the reference call has the same outcome as the customer's first call.
+            ApplyScenario(firstScenario>=0?firstScenario:0,phone);
+            scenarios.SelectedIndex=-1;
+            if(codes[3]!=null)codes[3].Text="";
+            if(codes[12]!=null)codes[12].Text="";
+        }else scenarios.SelectedIndex=1;
         Shown+=delegate{TopMost=true;BringToFront();Activate();};
         save.Click+=delegate{ Save();};
         Resize+=delegate{save.Left=ClientSize.Width-save.Width-28;};
@@ -424,7 +431,7 @@ internal sealed class ReportWindow:Form{
             }
             codes[3].Text=result;
         }
-        if(codes[12]!=null)codes[12].Text=MbReportTemplates.Classification[index];
+        if(codes[12]!=null)codes[12].Text=referencePhone.Length>0?"":MbReportTemplates.Classification[index];
         if(index==5)amount.Focus();else amount.Text="";
     }
 
@@ -444,6 +451,9 @@ internal sealed class ReportWindow:Form{
             // Do not repeat the date if the operator typed an explicit dd/MM/yyyy prefix.
             if(!Regex.IsMatch(body,@"^\d{2}/\d{2}/\d{4}(?:\s+\d{2}:\d{2})?(?=\s|$)"))
                 d.Text[col]=computerNow.ToString("dd/MM/yyyy",CultureInfo.InvariantCulture)+" "+body;
+        }
+        if(referencePhone.Length>0 && scenarios.SelectedIndex<0){
+            MessageBox.Show(this,"Chọn tình huống TH1–TH6 theo KẾT QUẢ CUỘC GỌI THAM CHIẾU trước khi lưu.");return;
         }
         if(referencePhone.Length>0 && String.IsNullOrWhiteSpace(d.Text[1])){
             MessageBox.Show(this,"Bạn vừa gọi số tham chiếu. Hãy chọn đúng 'Người được liên lạc' ở AE theo kết quả thực tế, không tự suy đoán.");return;
