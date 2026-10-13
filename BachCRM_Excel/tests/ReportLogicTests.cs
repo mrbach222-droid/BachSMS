@@ -87,6 +87,12 @@ internal class ReportLogicTests {
         Assert(refSession.Matches("100","HD1","987654321"),"Second hangup matches reference call identity");
         Assert(!refSession.Matches("100","HD2","0987654321"),"Second hangup does not cross contracts");
         Assert(!refSession.Matches("200","HD1","0987654321"),"Second hangup does not cross CIFs");
+        Assert(ReportLogic.ReferenceLine("987654321")=="CALL Số tham chiếu 0987654321 : ","Reference report prefix includes correct label");
+        Assert(!ReportLogic.ReferenceHasOutcome("13/10/2026 CALL 0912345678 : Không nghe\n"+ReportLogic.ReferenceLine("0987654321"),"0987654321"),"Blank reference outcome must not be auto-inferred");
+        Assert(ReportLogic.ReferenceHasOutcome("CALL Số tham chiếu 0987654321 : Người thân không nghe máy", "0987654321"),"Reference outcome manually entered and recognized");
+        // Marking care must not create duplicate entries for the same CIF; the report updates all contracts.
+        foreach(var c in careData.Where(x=>x.Cif=="400")){c.YellowRow=true;c.Care=true;c.Reported=true;}
+        Assert(CareLogic.UniqueCare(careData).Count(x=>x.Cif=="400")==1,"Checkbox care fanout deduplicated by CIF");
         Console.WriteLine("ALL TESTS PASSED");
     }
 }
