@@ -59,6 +59,9 @@ internal class ReportLogicTests {
         }
         Assert(MbReportTemplates.ContactPerson[0]=="Không gặp ai" && MbReportTemplates.ContactPerson[1]=="Không gặp ai" && MbReportTemplates.ContactPerson[2]=="Không gặp ai","TH1-3 are no answer");
         Assert(MbReportTemplates.ContactPerson[3]=="Khách hàng" && MbReportTemplates.ContactPerson[4]=="Người khác" && MbReportTemplates.ContactPerson[5]=="Khách hàng","TH4-6 recipients reset correctly");
+        Assert(ExcelComBusyFilter.IsBusy(new System.Runtime.InteropServices.COMException("Excel temporarily rejected",unchecked((int)0x80010001))),"RPC_E_CALL_REJECTED is retryable");
+        Assert(ExcelComBusyFilter.IsBusy(new System.Runtime.InteropServices.COMException("Excel retry later",unchecked((int)0x8001010A))),"RPC_E_SERVERCALL_RETRYLATER is retryable");
+        Assert(!ExcelComBusyFilter.IsBusy(new System.Runtime.InteropServices.COMException("Other COM failure",unchecked((int)0x80004005))),"Non-busy COM failures are not retried");
         Console.WriteLine("ALL TESTS PASSED");
     }
 }
