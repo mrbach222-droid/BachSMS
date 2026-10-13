@@ -179,7 +179,7 @@ internal sealed class ReportWindow:Form{
         if(boxes[8]!=null)boxes[8].Text=entry;
         // The workbook contains an external-link CACHE for its Code sheet. Use exact cached values.
         if(codes[0]!=null && codes[0].Text.Length==0)codes[0].Text="Gọi điện thoại di động";
-        if(codes[1]!=null && codes[1].Text.Length==0)codes[1].Text="Khách hàng";
+        if(codes[1]!=null && codes[1].Text.Length==0 && Util.Phone(phone).Length>0 && Util.Phone(phone)==Util.Phone(c.Phone))codes[1].Text="Khách hàng";
         if(codes[6]!=null && codes[6].Text.Length==0)codes[6].Text="Gọi điện thoại di động";
         string[] action={"Không có tín hiệu","Có tín hiệu không bắt máy","Số không tồn tại, số không đúng","","Không phải số KN / Số người thân khác","Hứa thanh toán"};
         string[] classification={"Call - Tắt máy","Call - Không nghe máy","Call - Sai số","Call - Không hứa thanh toán","Call - Sai số","Call - Có hứa thanh toán"};
