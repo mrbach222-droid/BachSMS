@@ -14,8 +14,8 @@ using System.Windows.Forms;
 // Excel automation edits ONLY worksheet report cells AD:AP for all verified contracts of the selected CIF.
 // The existing Excel worksheet is not modified to add macros or move columns.
 internal sealed class Customer {
-    public int Row; public string Contract="",Name="",Cif="",Phone="",Reference="",NewPhone="",Area="",Code="",Other="";
-    public decimal Debt; public int Overdue; public bool Reported;
+    public int Row; public string Contract="",Name="",Cif="",Phone="",Reference="",ReferenceName="",NewPhone="",Area="",Code="",Other="";
+    public decimal Debt; public int Overdue; public bool Reported, YellowRow, Promised, Care;
 }
 internal static class Settings {
     static string Dir { get {string p=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"BachCRMExcel"); Directory.CreateDirectory(p);return p;} }
@@ -81,6 +81,34 @@ internal static class GridStateLogic {
         }
         return visible!=null && fallback>=0 && fallback<visible.Count ? fallback : -1;
     }
+}
+// Customer-care membership is computed from the *actual* Excel workbook and is deduplicated by CIF.
+// Colour components of Excel Interior.Color are encoded as 0x00BBGGRR (OLE_COLOR).
+internal static class CareLogic {
+    public static bool IsYellow(object excelColor){
+        if(excelColor==null)return false;
+        int ole;
+        try{ole=Convert.ToInt32(excelColor,CultureInfo.InvariantCulture);}catch{return false;}
+        int r=ole & 255,g=(ole>>8)&255,b=(ole>>16)&255;
+        // Bright or pastel yellow, not the orange/peach colour of ordinary customer-name cells.
+        return r>=195 && g>=180 && ((b<=125 && g-b>=55) || (g>=225 && g-b>=25));
+    }
+    public static bool IsPromise(string action,string classification){
+        string a=(action??"").ToLowerInvariant(),c=(classification??"").ToLowerInvariant();
+        if(c.Contains("không hứa")||a.Contains("không hứa")||c.Contains("không có hứa")||a.Contains("không có hứa")||c.Contains("chưa hứa")||a.Contains("chưa hứa"))return false;
+        return c.Contains("có hứa")||a.Contains("hứa thanh toán");
+    }
+    public static bool NeedsCare(Customer c){return c!=null&&(c.Care||c.Promised||c.YellowRow);}
+    public static List<Customer> UniqueCare(IEnumerable<Customer> source){
+        return source.GroupBy(x=>x.Cif,StringComparer.OrdinalIgnoreCase)
+            .Where(g=>g.Any(NeedsCare)).Select(g=>g.OrderBy(x=>x.Row).First()).OrderBy(x=>x.Row).ToList();
+    }
+}
+internal sealed class ReferenceSession {
+    public string Cif,Contract,FirstPhone,RefPhone,RefName;
+    public int FirstScenario;
+    public bool Matches(string cif,string contract,string phone){return ReportLogic.SameCif(cif,Cif)&&
+        String.Equals(contract,Contract,StringComparison.OrdinalIgnoreCase)&&Util.Phone(phone)==RefPhone;}
 }
 internal static class MbReportTemplates {
     // Copied verbatim from DienBaoCaoMB original; TH labels are UI only.
@@ -186,7 +214,13 @@ internal sealed class ExcelStore: IDisposable {
             string contract=s(2),cif=s(5);if(contract.Length==0||cif.Length==0)continue;
             // D = phone copy, S = original personal phone, Y = reference, AM = new phone.
             string phone=Util.Phone(s(4));if(phone.Length==0)phone=Util.Phone(s(19));
-            Customer c=new Customer{Row=idx+6,Contract=contract,Cif=cif,Name=s(3),Phone=phone,Reference=s(25),NewPhone=s(39),Debt=Util.Money(grid[r0+idx,c0+8-1]),Overdue=(int)Util.Money(grid[r0+idx,c0+11-1]),Area=s(28),Code=s(33),Reported=Enumerable.Range(30,13).Any(j=>s(j).Length>0)};
+            Customer c=new Customer{Row=idx+6,Contract=contract,Cif=cif,Name=s(3),Phone=phone,Reference=s(25),ReferenceName=s(24),NewPhone=s(39),Debt=Util.Money(grid[r0+idx,c0+8-1]),Overdue=(int)Util.Money(grid[r0+idx,c0+11-1]),Area=s(28),Code=s(33),Reported=Enumerable.Range(30,13).Any(j=>s(j).Length>0)};
+            c.Promised=CareLogic.IsPromise(s(33),s(42));
+            // Only the row's leading cells are inspected; never write/change yellow formatting.
+            // Manual yellow fill is authoritative; COM read may be temporarily busy or unavailable.
+            try{c.YellowRow=CareLogic.IsYellow((object)sheet.Cells[c.Row,1].Interior.Color) ||
+                                 CareLogic.IsYellow((object)sheet.Cells[c.Row,5].Interior.Color);}catch(COMException ex){if(!ExcelComBusyFilter.IsBusy(ex)){} }
+            c.Care=c.Promised||c.YellowRow;
             Customers.Add(c);
         }
     }
@@ -312,11 +346,11 @@ internal static class PartnerCodes {
     public static bool Known(int index,string value){return Of(index).Contains(value);}
 }
 internal sealed class ReportWindow:Form{
-    readonly Customer c; readonly ExcelStore store;readonly TextBox[] boxes=new TextBox[13];readonly ComboBox[] codes=new ComboBox[13];readonly DateTimePicker[] dates=new DateTimePicker[2]; readonly TextBox amount=new TextBox();readonly ComboBox scenarios=new ComboBox();
+    readonly Customer c; readonly ExcelStore store;readonly int firstScenario;readonly string referencePhone,referenceName,firstPhone;readonly TextBox[] boxes=new TextBox[13];readonly ComboBox[] codes=new ComboBox[13];readonly DateTimePicker[] dates=new DateTimePicker[2]; readonly TextBox amount=new TextBox();readonly ComboBox scenarios=new ComboBox();
     static readonly string[] Labels={"(1) AD · Kênh liên lạc","(2) AE · Người được liên lạc","(3) AF · Ngày liên lạc","(4) AG · Mã kết quả (theo CODE đối tác)","(5) AH · Giá trị cam kết trả nợ","(6) AI · Ngày hành động tiếp theo","(7) AJ · Giải pháp thu nợ tiếp theo","(8) AK · Lịch sử thu nợ","(9) AL · Báo cáo kết quả làm việc","(10) AM · Số điện thoại mới","(11) AN · Thông tin mới điều tra","(12) AO · Lý do / Tình trạng tài sản","(13) AP · Phân loại khách hàng"};
     static readonly string[] TH={"TH1 · Tắt máy","TH2 · Không nghe máy","TH3 · Sai số","TH4 · Không có hứa hẹn","TH5 · Người khác / Sai số","TH6 · Có hứa hẹn"};
-    public ReportWindow(ExcelStore s,Customer customer,string phone){
-        store=s;c=customer;Text="BÁCH CRM EXCEL  |  GHI BÁO CÁO VÀO EXCEL";Font=new Font("Segoe UI",9);Size=new Size(1000,840);MinimumSize=new Size(870,680);StartPosition=FormStartPosition.CenterScreen;TopMost=true;BackColor=Color.FromArgb(246,248,252);
+    public ReportWindow(ExcelStore s,Customer customer,string phone,int firstCallScenario=-1,string refPhone="",string refName=""){
+        store=s;c=customer;firstPhone=phone;firstScenario=firstCallScenario;referencePhone=Util.Phone(refPhone);referenceName=refName??"";Text="BÁCH CRM EXCEL  |  GHI BÁO CÁO VÀO EXCEL";Font=new Font("Segoe UI",9);Size=new Size(1000,840);MinimumSize=new Size(870,680);StartPosition=FormStartPosition.CenterScreen;TopMost=true;BackColor=Color.FromArgb(246,248,252);
         var title=new Label{Text=c.Name+"   ·   CIF "+c.Cif+"   ·   HĐ đang gọi "+c.Contract+"   ·   Đồng bộ "+store.CustomerContractCount(c.Cif)+" hợp đồng",Font=new Font("Segoe UI",11,FontStyle.Bold),ForeColor=Color.FromArgb(24,45,78),Dock=DockStyle.Top,Height=43,Padding=new Padding(18,12,0,0)};Controls.Add(title);
         var warning=new Label{Text="Chọn TH1–TH6: AK cộng dồn lịch sử, AL chỉ ghi lần mới nhất; tất cả hợp đồng cùng CIF nhận báo cáo. Kiểm tra trước khi lưu.",ForeColor=Color.DarkRed,Dock=DockStyle.Top,Height=39,Padding=new Padding(18,6,5,3)};Controls.Add(warning);
         var head=new Panel{Dock=DockStyle.Top,Height=54};Controls.Add(head);var thLabel=new Label{Text="MẪU TÌNH HUỐNG",Left=18,Top=19,Width=145};head.Controls.Add(thLabel);
@@ -355,8 +389,13 @@ internal sealed class ReportWindow:Form{
             }
             lines.RowStyles.Add(new RowStyle(SizeType.AutoSize));var wrap=new Panel{Height=(i==7||i==8?79:(i==10?58:34)),Dock=DockStyle.Fill};input.Dock=DockStyle.Top;wrap.Controls.Add(input);lines.Controls.Add(wrap,1,i);
         }
+        if(referencePhone.Length>0){
+            warning.Text="ĐÃ GỌI THAM CHIẾU: "+(referenceName.Length>0?referenceName:"Chưa có tên (cột X)")+" · "+referencePhone+
+                " | Điền kết quả thật vào dòng CALL tham chiếu; xác nhận AE/AG trước khi lưu.";
+            title.Text+="   ·   2 lần gọi";
+        }
         scenarios.SelectedIndexChanged+=delegate{ApplyScenario(scenarios.SelectedIndex,phone);};
-        scenarios.SelectedIndex=1;
+        scenarios.SelectedIndex=firstScenario>=0?firstScenario:1;
         Shown+=delegate{TopMost=true;BringToFront();Activate();};
         save.Click+=delegate{ Save();};
         Resize+=delegate{save.Left=ClientSize.Width-save.Width-28;};
@@ -364,12 +403,17 @@ internal sealed class ReportWindow:Form{
     void ApplyScenario(int index,string phone){
         if(index<0)return;
         // Match the original Điền Báo Cáo MB text; the UI-only TH label is never written into AK/AL.
-        string entry=MbReportTemplates.Note(index,phone);
+        string entry=MbReportTemplates.Note(firstScenario>=0?firstScenario:index,firstPhone);
+        if(referencePhone.Length>0){
+            entry+="\r\nCALL "+referencePhone+" : ";
+            // Reference call is a separate human interaction. The operator must record the actual outcome.
+            // Neither phone-signalling nor a TH selection can establish who answered it.
+        }
         if(boxes[7]!=null)boxes[7].Text=entry;
         if(boxes[8]!=null)boxes[8].Text=entry;
         // Reset AE on EVERY change of scenario. Previously AE inherited the wrong old scenario.
         if(codes[0]!=null)codes[0].Text="Gọi điện thoại di động";
-        if(codes[1]!=null)codes[1].Text=MbReportTemplates.ContactPerson[index];
+        if(codes[1]!=null)codes[1].Text=referencePhone.Length>0?"":MbReportTemplates.ContactPerson[index];
         if(codes[6]!=null)codes[6].Text="Gọi điện thoại di động";
         if(codes[3]!=null){
             string result=MbReportTemplates.Action[index];
@@ -384,6 +428,11 @@ internal sealed class ReportWindow:Form{
         if(index==5)amount.Focus();else amount.Text="";
     }
 
+    static bool ReferenceOutcomeWritten(string note,string phone){
+        string marker="CALL "+phone+" :";
+        int index=(note??"").LastIndexOf(marker,StringComparison.OrdinalIgnoreCase);
+        return index>=0 && !String.IsNullOrWhiteSpace(note.Substring(index+marker.Length));
+    }
     void Save(){
         ReportData d=new ReportData();for(int i=0;i<13;i++)d.Text[i]=codes[i]!=null?codes[i].Text.Trim():(boxes[i]==null?"":boxes[i].Text.Trim());
         d.Text[2]=dates[0].Value.ToString("dd/MM/yyyy");d.Text[5]=dates[1].Value.ToString("dd/MM/yyyy");d.Text[4]=amount.Text.Trim();
@@ -395,6 +444,13 @@ internal sealed class ReportWindow:Form{
             // Do not repeat the date if the operator typed an explicit dd/MM/yyyy prefix.
             if(!Regex.IsMatch(body,@"^\d{2}/\d{2}/\d{4}(?:\s+\d{2}:\d{2})?(?=\s|$)"))
                 d.Text[col]=computerNow.ToString("dd/MM/yyyy",CultureInfo.InvariantCulture)+" "+body;
+        }
+        if(referencePhone.Length>0 && String.IsNullOrWhiteSpace(d.Text[1])){
+            MessageBox.Show(this,"Bạn vừa gọi số tham chiếu. Hãy chọn đúng 'Người được liên lạc' ở AE theo kết quả thực tế, không tự suy đoán.");return;
+        }
+        if(referencePhone.Length>0 && !ReferenceOutcomeWritten(d.Text[8],referencePhone)){
+            if(MessageBox.Show(this,"Bạn chưa nhập nội dung sau dòng CALL số tham chiếu. Lưu báo cáo dù kết quả cuộc gọi thứ hai còn trống?",
+                "Kiểm tra cuộc gọi tham chiếu",MessageBoxButtons.YesNo,MessageBoxIcon.Warning)!=DialogResult.Yes)return;
         }
         if(String.IsNullOrWhiteSpace(d.Text[3])){
             if(MessageBox.Show(this,"Ô AG chưa có MÃ KẾT QUẢ từ danh mục Code của đối tác. Vẫn lưu nội dung AK/AL và ngày vào Excel (báo cáo còn thiếu mã AG)?","Chưa có mã đối tác",MessageBoxButtons.YesNo,MessageBoxIcon.Warning)!=DialogResult.Yes)return;
@@ -411,8 +467,11 @@ internal sealed class ReportWindow:Form{
 }
 internal sealed class CRM:Form {
     ExcelStore store;ExcelRowDock dock;readonly DataGridView grid=new DataGridView();readonly TextBox search=new TextBox();readonly Label summary=new Label(),fileLabel=new Label();readonly Timer queueTimer=new Timer(); readonly Dictionary<int,Customer> displayed=new Dictionary<int,Customer>();
+    readonly Dictionary<int,string> groupHeaders=new Dictionary<int,string>();
+    readonly Dictionary<string,bool> expanded=new Dictionary<string,bool>{{"care",true},{"pending",true},{"done",false}};
+    ReferenceSession pendingReference;
     public CRM(){
-        Text="BÁCH CRM EXCEL  ·  Sacombank  ·  v0.8";Size=new Size(1370,770);MinimumSize=new Size(1040,650);Font=new Font("Segoe UI",9);BackColor=Color.FromArgb(245,248,252);StartPosition=FormStartPosition.CenterScreen;
+        Text="BÁCH CRM EXCEL  ·  Sacombank  ·  v0.9";Size=new Size(1370,770);MinimumSize=new Size(1040,650);Font=new Font("Segoe UI",9);BackColor=Color.FromArgb(245,248,252);StartPosition=FormStartPosition.CenterScreen;
         var header=new Panel{Dock=DockStyle.Top,Height=74,BackColor=Color.FromArgb(22,40,69)};Controls.Add(header);
         header.Controls.Add(new Label{Text="BÁCH CRM EXCEL",Left=22,Top=13,ForeColor=Color.White,Font=new Font("Segoe UI",18,FontStyle.Bold),AutoSize=true});
         header.Controls.Add(new Label{Text="Quản lý danh sách · CALL EyeBeam · Báo cáo trực tiếp vào Excel · Độc lập FPT",Left=23,Top=49,ForeColor=Color.FromArgb(188,205,225),AutoSize=true});
@@ -429,7 +488,13 @@ internal sealed class CRM:Form {
         var action=new DataGridViewButtonColumn{HeaderText="GỌI KHÁCH",Name="act",Text="TÁC ĐỘNG",UseColumnTextForButtonValue=true,Width=135,AutoSizeMode=DataGridViewAutoSizeColumnMode.None};grid.Columns.Add(action);
         Controls.Add(grid);grid.BringToFront();
         grid.CellContentClick+=delegate(object sender,DataGridViewCellEventArgs e){if(e.RowIndex>=0&&e.ColumnIndex==grid.Columns["act"].Index)CallRow(e.RowIndex);};
-        grid.CellDoubleClick+=delegate(object sender,DataGridViewCellEventArgs e){if(e.RowIndex>=0&&e.ColumnIndex>=0&&e.ColumnIndex!=grid.Columns["act"].Index)OpenReport(GetCustomer(e.RowIndex),"");};
+        grid.CellClick+=delegate(object sender,DataGridViewCellEventArgs e){
+            string group;
+            if(e.RowIndex>=0&&groupHeaders.TryGetValue(e.RowIndex,out group)){
+                expanded[group]=!expanded[group];RefreshRows();
+            }
+        };
+        grid.CellDoubleClick+=delegate(object sender,DataGridViewCellEventArgs e){if(e.RowIndex>=0&&e.ColumnIndex>=0&&e.ColumnIndex!=grid.Columns["act"].Index&&GetCustomer(e.RowIndex)!=null)OpenReport(GetCustomer(e.RowIndex),"");};
         queueTimer.Interval=650;queueTimer.Tick+=delegate{PollReports();};queueTimer.Start();Shown+=delegate{if(File.Exists(Settings.WorkbookPath))Open(Settings.WorkbookPath);else fileLabel.Text="Chọn file Sacombank Excel để bắt đầu. App không tự nhập hồ sơ vào FPT.";};
     }
     Button MakeButton(string t,int left,int top,int width,bool primary){var b=new Button{Text=t,Left=left,Top=top,Width=width,Height=33,FlatStyle=FlatStyle.Flat,BackColor=primary?Color.FromArgb(28,102,183):Color.FromArgb(235,241,249),ForeColor=primary?Color.White:Color.FromArgb(30,55,86)};b.FlatAppearance.BorderSize=0;return b;}
@@ -474,28 +539,68 @@ internal sealed class CRM:Form {
         if(bookmark==null)bookmark=CaptureGridPosition();
         grid.SuspendLayout();
         try{
-            grid.Rows.Clear();displayed.Clear();if(store==null){summary.Text="Chưa chọn Excel";return;}
-            string term=search.Text.Trim();IEnumerable<Customer> list=store.Customers;
-            if(term.Length>0)list=list.Where(c=>(c.Cif+" "+c.Contract+" "+c.Name+" "+c.Phone+" "+c.Reference).IndexOf(term,StringComparison.OrdinalIgnoreCase)>=0);
-            int i=0;foreach(Customer c in list){int r=grid.Rows.Add(c.Cif,c.Contract,c.Name,Util.N(c.Debt),c.Overdue,Util.Phone(c.Phone).Length>0?Util.Phone(c.Phone):"(thiếu)",c.Area,c.Reported?"Đã ghi":"Chưa ghi");displayed[r]=c;if(i++%2==0)grid.Rows[r].DefaultCellStyle.BackColor=Color.FromArgb(251,253,255);if(Util.Phone(c.Phone).Length==0)grid.Rows[r].Cells["phone"].Style.ForeColor=Color.DarkRed;}
-            summary.Text="TỔNG HỢP ĐỒNG: "+store.Customers.Count+"     ·     KH HIỂN THỊ: "+i+"     ·     SỐ CIF: "+store.Customers.Select(x=>x.Cif).Distinct().Count()+"     ·     ĐÃ CÓ BÁO CÁO: "+store.Customers.Count(x=>x.Reported)+"      |  Báo cáo viết vào AD:AP";
+            grid.Rows.Clear();displayed.Clear();groupHeaders.Clear();
+            if(store==null){summary.Text="Chưa chọn Excel";return;}
+            string term=search.Text.Trim();
+            List<Customer> filtered=store.Customers.Where(c=>term.Length==0 ||
+                (c.Cif+" "+c.Contract+" "+c.Name+" "+c.Phone+" "+c.Reference+" "+c.ReferenceName).IndexOf(term,StringComparison.OrdinalIgnoreCase)>=0).ToList();
+            HashSet<string> careCifs=new HashSet<string>(CareLogic.UniqueCare(store.Customers).Select(x=>x.Cif),StringComparer.OrdinalIgnoreCase);
+            var care=filtered.Where(x=>careCifs.Contains(x.Cif)).GroupBy(x=>x.Cif,StringComparer.OrdinalIgnoreCase)
+                .Select(g=>g.OrderBy(x=>x.Row).First()).ToList();
+            var remaining=filtered.Where(x=>!careCifs.Contains(x.Cif)).ToList();
+            var pending=remaining.Where(x=>!x.Reported).ToList();
+            var done=remaining.Where(x=>x.Reported).ToList();
+            AddGroupHeader("care","CẦN PHẢI CARE  ·  "+care.Count+" KH",Color.FromArgb(240,229,170));
+            if(expanded["care"])foreach(Customer c in care){
+                List<Customer> all=store.Customers.Where(x=>ReportLogic.SameCif(x.Cif,c.Cif)).ToList();
+                AddCustomerRow(c,all.Count>1?c.Name+"  ("+all.Count+" HĐ)":c.Name,
+                    all.Sum(x=>x.Debt),all.Max(x=>x.Overdue),all.Any(x=>x.Reported),true);
+            }
+            AddGroupHeader("pending","CHƯA BÁO CÁO  ·  "+pending.Count+" HĐ",Color.FromArgb(221,232,249));
+            if(expanded["pending"])foreach(Customer c in pending)AddCustomerRow(c,c.Name,c.Debt,c.Overdue,false,false);
+            AddGroupHeader("done","ĐÃ BÁO CÁO  ·  "+done.Count+" HĐ",Color.FromArgb(208,239,219));
+            if(expanded["done"])foreach(Customer c in done)AddCustomerRow(c,c.Name,c.Debt,c.Overdue,true,false);
+            summary.Text="TỔNG HỢP ĐỒNG: "+store.Customers.Count+"     ·     SỐ CIF: "+store.Customers.Select(x=>x.Cif).Distinct().Count()+
+                "     ·     CẦN CARE: "+careCifs.Count+" CIF     ·     ĐÃ CÓ BÁO CÁO: "+store.Customers.Count(x=>x.Reported)+" HĐ     | AD:AP";
         }finally{grid.ResumeLayout(false);}
         RestoreGridPosition(bookmark);
+    }
+    void AddGroupHeader(string key,string label,Color background){
+        int row=grid.Rows.Add("","",(expanded[key]?"⊟  ":"⊞  ")+label,"","","","","","");
+        groupHeaders[row]=key;
+        DataGridViewRow group=grid.Rows[row];
+        group.DefaultCellStyle.BackColor=background;
+        group.DefaultCellStyle.ForeColor=Color.FromArgb(22,56,81);
+        group.DefaultCellStyle.Font=new Font("Segoe UI",9,FontStyle.Bold);
+        group.Height=33;
+        group.Cells["act"]=new DataGridViewTextBoxCell{Value="BẤM +/-"};
+    }
+    void AddCustomerRow(Customer c,string label,decimal debt,int overdue,bool reported,bool care){
+        int row=grid.Rows.Add(c.Cif,c.Contract,label,Util.N(debt),overdue,
+            Util.Phone(c.Phone).Length>0?Util.Phone(c.Phone):"(thiếu)",c.Area,reported?"Đã ghi":"Chưa ghi");
+        displayed[row]=c;
+        if(reported)grid.Rows[row].DefaultCellStyle.BackColor=Color.FromArgb(220,247,230);
+        else if(care)grid.Rows[row].DefaultCellStyle.BackColor=Color.FromArgb(255,250,225);
+        else if(row%2==0)grid.Rows[row].DefaultCellStyle.BackColor=Color.FromArgb(251,253,255);
+        if(Util.Phone(c.Phone).Length==0)grid.Rows[row].Cells["phone"].Style.ForeColor=Color.DarkRed;
     }
     Customer GetCustomer(int row){Customer c;return displayed.TryGetValue(row,out c)?c:null;}
     Customer Selected(){return grid.CurrentRow==null?null:GetCustomer(grid.CurrentRow.Index);}
     void ReportSelected(string phone){Customer c=Selected();if(c==null)return;OpenReport(c,phone);}
-    void OpenReport(Customer c,string phone){
+    void OpenReport(Customer c,string phone,ReferenceSession reference=null){
         if(c==null||store==null)return;
         GridPosition bookmark=CaptureGridPosition();
         try{
             store.Exact(c.Row,c.Cif,c.Contract);
-            using(var f=new ReportWindow(store,c,phone)){
+            using(var f=new ReportWindow(store,c,phone,reference==null?-1:reference.FirstScenario,
+                reference==null?"":reference.RefPhone,reference==null?"":reference.RefName)){
                 if(f.ShowDialog(this)==DialogResult.OK)RefreshRows(bookmark);
             }
         }catch(Exception e){MessageBox.Show(this,e.Message);}
     }
-    public void CallCustomer(Customer c){if(c==null||store==null)return;try{store.Exact(c.Row,c.Cif,c.Contract);}catch(Exception e){MessageBox.Show(this,e.Message);return;}
+    public void CallCustomer(Customer c){
+        if(pendingReference!=null){MessageBox.Show(this,"Đang chờ hoàn thành cuộc gọi tham chiếu cho CIF "+pendingReference.Cif+". Hãy hoàn tất hoặc hủy quy trình hiện tại.");return;}
+        if(c==null||store==null)return;try{store.Exact(c.Row,c.Cif,c.Contract);}catch(Exception e){MessageBox.Show(this,e.Message);return;}
 
         var phones=new List<KeyValuePair<string,string>>();foreach(var v in new[]{new KeyValuePair<string,string>("SĐT cá nhân (D/S)",c.Phone),new KeyValuePair<string,string>("SĐT tham chiếu (Y)",c.Reference),new KeyValuePair<string,string>("SĐT mới (AM)",c.NewPhone)}){
             string p=Util.Phone(v.Value);if(p.Length>0&&!phones.Any(x=>x.Value==p))phones.Add(new KeyValuePair<string,string>(v.Key,p));}
@@ -508,9 +613,16 @@ internal sealed class CRM:Form {
             var ok=MakeButton("MỞ EYEBEAM",160,150,160,true);d.Controls.Add(ok);ok.Click+=delegate{selected=phones[combo.SelectedIndex].Value;d.DialogResult=DialogResult.OK;d.Close();};
             if(d.ShowDialog(this)!=DialogResult.OK)return;
         }
-        string exe=Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"BachCRMExcelBridge.exe");if(!File.Exists(exe)){MessageBox.Show(this,"Thiếu BachCRMExcelBridge.exe — chạy BUILD_AND_START.cmd.");return;}
-        try{System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo{FileName=exe,UseShellExecute=false,WorkingDirectory=AppDomain.CurrentDomain.BaseDirectory,Arguments="--phone "+Util.Quote(selected)+" --cif "+Util.Quote(c.Cif)+" --contract "+Util.Quote(c.Contract)});}
-        catch(Exception e){MessageBox.Show(this,"Không mở được Bridge: "+e.Message);}
+        StartBridge(c,selected);
+    }
+    bool StartBridge(Customer c,string phone){
+        string exe=Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"BachCRMExcelBridge.exe");
+        if(!File.Exists(exe)){MessageBox.Show(this,"Thiếu BachCRMExcelBridge.exe — chạy BUILD_AND_START.cmd.");return false;}
+        if(Util.Phone(phone).Length==0){MessageBox.Show(this,"SĐT không hợp lệ. Không thể chuyển sang EyeBeam.");return false;}
+        try{System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo{FileName=exe,UseShellExecute=false,
+            WorkingDirectory=AppDomain.CurrentDomain.BaseDirectory,
+            Arguments="--phone "+Util.Quote(phone)+" --cif "+Util.Quote(c.Cif)+" --contract "+Util.Quote(c.Contract)});return true;}
+        catch(Exception e){MessageBox.Show(this,"Không mở được Bridge: "+e.Message);return false;}
     }
     void CallRow(int idx){CallCustomer(GetCustomer(idx));}
     void ToggleExcelDock(){
@@ -528,8 +640,58 @@ internal sealed class CRM:Form {
                 if(!long.TryParse(payload[3],out ticks)||Math.Abs((DateTime.UtcNow-new DateTime(ticks,DateTimeKind.Utc)).TotalMinutes)>120)continue;
                 var hits=store.Customers.Where(x=>x.Cif==cif&&x.Contract==contract).ToList();if(hits.Count!=1){MessageBox.Show(this,"Cuộc gọi hoàn tất nhưng không tìm đúng CIF/HĐ trong Excel. Không mở báo cáo nhầm khách.");continue;}
                 WindowState=FormWindowState.Normal;
-                Show();BringToFront();Activate();OpenReport(hits[0],phone);
+                Show();BringToFront();Activate();
+                Customer current=hits[0];
+                if(pendingReference!=null){
+                    if(pendingReference.Matches(cif,contract,phone)){
+                        ReferenceSession finished=pendingReference;pendingReference=null;
+                        OpenReport(current,finished.FirstPhone,finished);
+                    }else{
+                        MessageBox.Show(this,"Đang chờ cuộc gọi tham chiếu cho CIF "+pendingReference.Cif+". Sự kiện gác máy không khớp số tham chiếu, không ghi nhầm báo cáo.");
+                    }
+                    continue;
+                }
+                string refPhone=Util.Phone(current.Reference);
+                if(Util.Phone(phone)==Util.Phone(current.Phone) && refPhone.Length>0 && refPhone!=Util.Phone(phone)){
+                    ShowAfterFirstCall(current,phone,refPhone);continue;
+                }
+                OpenReport(current,phone);
             }catch(Exception e){try{File.Move(f,f+".failed");}catch{}MessageBox.Show(this,"Lỗi nhận sự kiện kết thúc cuộc gọi: "+e.Message);}
+        }
+    }
+    void ShowAfterFirstCall(Customer customer,string firstPhone,string refPhone){
+        int outcome=-1;bool callReference=false;
+        using(var f=new Form{Text="KẾT THÚC CUỘC GỌI 1 · "+customer.Name,
+            Font=Font,StartPosition=FormStartPosition.CenterParent,Size=new Size(550,300),
+            MinimizeBox=false,MaximizeBox=false,FormBorderStyle=FormBorderStyle.FixedDialog,TopMost=true}){
+            f.Controls.Add(new Label{Left=18,Top=18,Width=500,Height=48,
+                Text="Cuộc gọi KH: "+firstPhone+"\nEyeBeam không tự xác định lý do mất liên lạc. Bạn hãy chọn kết quả thực tế."});
+            var choose=new ComboBox{Left=18,Top=80,Width=495,DropDownStyle=ComboBoxStyle.DropDownList};
+            choose.Items.AddRange(new object[]{"TH1 · Tắt máy / mất liên lạc","TH2 · Không nghe máy","TH3 · Sai số","TH5 · Người khác / sai số"});
+            f.Controls.Add(choose);
+            f.Controls.Add(new Label{Left=18,Top=119,Width=510,Height=39,
+                Text="Người tham chiếu (cột X): "+(customer.ReferenceName.Length>0?customer.ReferenceName:"(chưa có tên)")+"\nSĐT tham chiếu (Y): "+refPhone});
+            var next=new Button{Left=18,Top=185,Width=248,Height=42,Text="GỌI THAM CHIẾU →",BackColor=Color.FromArgb(20,106,195),ForeColor=Color.White};
+            var report=new Button{Left=281,Top=185,Width=232,Height=42,Text="BÁO CÁO NGAY"};
+            f.Controls.Add(next);f.Controls.Add(report);
+            next.Click+=delegate{
+                int[] scenarios={0,1,2,4};
+                if(choose.SelectedIndex<0){MessageBox.Show(f,"Bạn hãy chọn đúng kết quả cuộc gọi thứ nhất trước khi gọi tham chiếu.");return;}
+                outcome=scenarios[choose.SelectedIndex];callReference=true;f.DialogResult=DialogResult.OK;
+            };
+            report.Click+=delegate{f.DialogResult=DialogResult.OK;};
+            f.ShowDialog(this);
+        }
+        if(callReference){
+            var session=new ReferenceSession{Cif=customer.Cif,Contract=customer.Contract,FirstPhone=firstPhone,
+                RefPhone=refPhone,RefName=customer.ReferenceName,FirstScenario=outcome};
+            pendingReference=session;
+            if(!StartBridge(customer,refPhone)){
+                pendingReference=null;
+                MessageBox.Show(this,"Chưa mở được cuộc gọi tham chiếu. Hãy mở báo cáo thủ công khi cần, không ghi nhầm.");
+            }
+        }else{
+            OpenReport(customer,firstPhone);
         }
     }
     protected override void OnFormClosed(FormClosedEventArgs e){queueTimer.Stop();if(dock!=null&&!dock.IsDisposed)dock.Close();if(store!=null)store.Dispose();base.OnFormClosed(e);}
