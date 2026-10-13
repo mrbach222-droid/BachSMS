@@ -75,6 +75,62 @@ internal sealed class BachCRMExcelBridge : Form {
     int idleConfirmations=0;
     DateTime lastStateScan=DateTime.MinValue;
     string currentCallPhone="";
+    // WH_MOUSE_LL runs on our own process's thread and captures very short
+    // mouse clicks that a 45-ms GetAsyncKeyState poll may miss. No keystrokes,
+    // screen images, call audio or other application data are collected.
+    const int WH_MOUSE_LL=14,WM_LBUTTONDOWN=0x0201;
+    delegate IntPtr LowLevelMouseProc(int nCode,IntPtr wParam,IntPtr lParam);
+    [StructLayout(LayoutKind.Sequential)] struct MouseEventData {
+        public NativePoint Pt;public uint MouseData,Flags,Time;public UIntPtr ExtraInfo;
+    }
+    [DllImport("user32.dll",SetLastError=true)] static extern IntPtr SetWindowsHookEx(int idHook,LowLevelMouseProc callback,IntPtr module,uint threadId);
+    [DllImport("user32.dll",SetLastError=true)] static extern bool UnhookWindowsHookEx(IntPtr hook);
+    [DllImport("user32.dll")] static extern IntPtr CallNextHookEx(IntPtr hook,int nCode,IntPtr wParam,IntPtr lParam);
+    [DllImport("kernel32.dll",CharSet=CharSet.Unicode)] static extern IntPtr GetModuleHandle(string module);
+    LowLevelMouseProc mouseProc;IntPtr mouseHook=IntPtr.Zero;
+    int eyePid=0;
+    int uiaEndClickProbe=0;
+    bool AutoHangupEnabled {get{return running && callArmed && !endDispatched &&
+       NormalizePhone(currentCallPhone).Length>0 && (DateTime.Now-callArmedAt).TotalMilliseconds>=650;}}
+    void InstallMouseWatcher(){
+        try{
+            mouseProc=OnMouseEvent;
+            mouseHook=SetWindowsHookEx(WH_MOUSE_LL,mouseProc,GetModuleHandle(null),0);
+            Log(mouseHook!=IntPtr.Zero?"Bắt sự kiện chuột EyeBeam: đã bật (không cần click giữ lâu).":"Không bật được mouse hook; vẫn còn theo dõi trạng thái và hiệu chỉnh nút đỏ.");
+        }catch(Exception ex){Log("Mouse hook unavailable: "+ex.GetType().Name);}
+    }
+    IntPtr OnMouseEvent(int code,IntPtr wParam,IntPtr lParam){
+        if(code>=0 && wParam.ToInt64()==WM_LBUTTONDOWN && AutoHangupEnabled){
+            try{
+                MouseEventData info=(MouseEventData)Marshal.PtrToStructure(lParam,typeof(MouseEventData));
+                IntPtr window=GetAncestor(WindowFromPoint(info.Pt),2);
+                uint pid=0;if(window!=IntPtr.Zero)GetWindowThreadProcessId(window,out pid);
+                if(pid!=0 && pid==(uint)eyePid){
+                    // The saved hang-up target is fast and safe to inspect inside the callback.
+                    bool atHangup=IsHangupPoint(window,info.Pt);
+                    NativePoint point=info.Pt;
+                    if(atHangup){
+                        BeginInvoke((Action)delegate{ScheduleEndCallAfterClick("Click nút đỏ EyeBeam (mouse hook)");});
+                    }else if(System.Threading.Interlocked.CompareExchange(ref uiaEndClickProbe,1,0)==0){
+                        // UI Automation on a worker, never inside a low-level input hook.
+                        System.Threading.ThreadPool.QueueUserWorkItem(delegate{
+                            bool found=false;try{found=ClickedEndCallControl(point);}catch{}
+                            try{if(found && !IsDisposed && IsHandleCreated)BeginInvoke((Action)delegate{ScheduleEndCallAfterClick("EyeBeam end-call control (UIA)");});}catch{}
+                            System.Threading.Interlocked.Exchange(ref uiaEndClickProbe,0);
+                        });
+                    }
+                }
+            }catch{}
+        }
+        return CallNextHookEx(mouseHook,code,wParam,lParam);
+    }
+    void ScheduleEndCallAfterClick(string source){
+        if(!AutoHangupEnabled || dispatchPending)return;
+        Log(source+"; đợi thao tác gác máy hoàn tất, rồi tự mở báo cáo.");
+        dispatchPending=true;
+        dispatchAt=DateTime.Now.AddMilliseconds(450);
+    }
+
 
 
     [STAThread] static void Main(string[] args){
@@ -135,7 +191,7 @@ internal sealed class BachCRMExcelBridge : Form {
         clock.Interval=450;clock.Tick+=delegate{if(running){Tick();if(EyeBeam()==null && (DateTime.Now-lastEyeSearch).TotalSeconds>10){lastEyeSearch=DateTime.Now;EnsureEyeBeam();}}};
         clipboardDelay.Interval=45; clipboardDelay.Tick+=CheckClickedClipboard;
         inputPoll.Interval=45;inputPoll.Tick+=delegate{if(running)PollInputs();};
-        Log("Bách CRM Excel v0.4: tự nhận trạng thái gác máy, hỗ trợ hiệu chỉnh nút đỏ, nút dự phòng báo cáo. Người dùng tự Enter để gọi.");
+        Log("Bách CRM Excel v0.8: mouse hook + trạng thái gác máy, hỗ trợ hiệu chỉnh nút đỏ, nút dự phòng báo cáo. Người dùng tự Enter để gọi.");
         careLaunchTimer.Interval=350;
         careLaunchTimer.Tick+=delegate{
             careLaunchAttempts++;
@@ -158,6 +214,12 @@ internal sealed class BachCRMExcelBridge : Form {
             currentCallPhone=number.Text;
             careLaunchTimer.Start();
         });};
+    }
+    protected override void OnFormClosed(FormClosedEventArgs e){
+        running=false;
+        if(mouseHook!=IntPtr.Zero){UnhookWindowsHookEx(mouseHook);mouseHook=IntPtr.Zero;}
+        mouseProc=null;
+        base.OnFormClosed(e);
     }
     void ShowLog(){
         Form f=new Form{Text="Bách CRM - Nhật ký",Width=780,Height=450,StartPosition=FormStartPosition.CenterParent};
@@ -246,6 +308,7 @@ internal sealed class BachCRMExcelBridge : Form {
     void BeginWatch(){
         if(running)return;
         running=true;inputPoll.Start();clock.Start();startButton.Enabled=true;
+        InstallMouseWatcher();
         Log("Theo dõi cuộc gọi EyeBeam của KH đã chọn từ Excel.");
         EnsureEyeBeam();
         if(EyeBeam()!=null)status.Text="Đang theo dõi trạng thái EyeBeam cho số đã chọn.";
@@ -456,6 +519,7 @@ internal sealed class BachCRMExcelBridge : Form {
         if(phone.Length==0){status.Text="Chưa có số hợp lệ.";return;}
         Process ey=EyeBeam();
         if(ey==null){status.Text="Không tìm thấy EyeBeam đang mở.";Log("EyeBeamProcessMissing");return;}
+        eyePid=ey.Id;
         Log("EyeBeam pid="+ey.Id+", main hwnd="+ey.MainWindowHandle.ToInt64());
         // Focusing before input matters for this skinned legacy dialer.
         try{
@@ -508,7 +572,7 @@ internal sealed class BachCRMExcelBridge : Form {
                         Log("Đã bấm điều khiển kết thúc EyeBeam; chờ trạng thái cuộc gọi xác nhận.");
                         // A labelled native end-call control is sufficient when EyeBeam does not expose call state.
                         // With accessible call state, Tick also detects the Active -> Idle transition.
-                        dispatchPending=true;dispatchAt=DateTime.Now.AddMilliseconds(350);
+                        ScheduleEndCallAfterClick("Click nút đỏ EyeBeam (dò bổ sung)");
                     }
                 }
             }
