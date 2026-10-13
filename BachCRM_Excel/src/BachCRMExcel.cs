@@ -650,17 +650,17 @@ internal sealed class CRM:Form {
         var phones=new List<KeyValuePair<string,string>>();foreach(var v in new[]{new KeyValuePair<string,string>("SĐT cá nhân (D/S)",c.Phone),new KeyValuePair<string,string>("SĐT tham chiếu (Y)",c.Reference),new KeyValuePair<string,string>("SĐT mới (AM)",c.NewPhone)}){
             string p=Util.Phone(v.Value);if(p.Length>0&&!phones.Any(x=>x.Value==p))phones.Add(new KeyValuePair<string,string>(v.Key,p));}
         if(phones.Count==0){MessageBox.Show(this,"Dòng này chưa có SĐT hợp lệ. Hãy kiểm tra cột D/S, Y hoặc AM.");return;}
-        string selected="";
+        string selected="";bool selectedReference=false;
         using(var d=new Form{Text="CHỌN SỐ GỌI · "+c.Name,Size=new Size(485,270),StartPosition=FormStartPosition.CenterParent,Font=Font,FormBorderStyle=FormBorderStyle.FixedDialog,MaximizeBox=false,MinimizeBox=false}){
             d.Controls.Add(new Label{Left=17,Top=13,Width=440,Height=30,Text="CIF "+c.Cif+" · HĐ "+c.Contract+" — chọn số để đưa vào EyeBeam:"});
             var combo=new ComboBox{Left=17,Top=49,Width=440,DropDownStyle=ComboBoxStyle.DropDownList};foreach(var p in phones)combo.Items.Add(p.Key+"   ·   "+p.Value);combo.SelectedIndex=0;d.Controls.Add(combo);
             d.Controls.Add(new Label{Text="CRM chỉ điền số. Bạn phải tự bấm Enter trên EyeBeam để gọi.",Left=17,Top=91,Width=440,Height=42,ForeColor=Color.FromArgb(85,106,139)});
-            var ok=MakeButton("MỞ EYEBEAM",160,150,160,true);d.Controls.Add(ok);ok.Click+=delegate{selected=phones[combo.SelectedIndex].Value;d.DialogResult=DialogResult.OK;d.Close();};
+            var ok=MakeButton("MỞ EYEBEAM",160,150,160,true);d.Controls.Add(ok);ok.Click+=delegate{selected=phones[combo.SelectedIndex].Value;selectedReference=phones[combo.SelectedIndex].Key.StartsWith("SĐT tham chiếu",StringComparison.OrdinalIgnoreCase);d.DialogResult=DialogResult.OK;d.Close();};
             if(d.ShowDialog(this)!=DialogResult.OK)return;
         }
-        StartBridge(c,selected);
+        StartBridge(c,selected,selectedReference);
     }
-    bool StartBridge(Customer c,string phone){
+    bool StartBridge(Customer c,string phone,bool isReference){
         string exe=Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"BachCRMExcelBridge.exe");
         if(!File.Exists(exe)){MessageBox.Show(this,"Thiếu BachCRMExcelBridge.exe — chạy BUILD_AND_START.cmd.");return false;}
         if(Util.Phone(phone).Length==0){MessageBox.Show(this,"SĐT không hợp lệ. Không thể chuyển sang EyeBeam.");return false;}
@@ -668,7 +668,7 @@ internal sealed class CRM:Form {
             WorkingDirectory=AppDomain.CurrentDomain.BaseDirectory,
             Arguments="--phone "+Util.Quote(phone)+" --cif "+Util.Quote(c.Cif)+" --contract "+Util.Quote(c.Contract)+
                 " --customer-name "+Util.Quote(c.Name)+" --reference-name "+Util.Quote(c.ReferenceName)+
-                " --call-type "+Util.Quote(Util.Phone(c.Reference)==Util.Phone(phone)?"reference":"customer")});return true;}
+                " --call-type "+Util.Quote(isReference?"reference":"customer")});return true;}
         catch(Exception e){MessageBox.Show(this,"Không mở được Bridge: "+e.Message);return false;}
     }
     void CallRow(int idx){CallCustomer(GetCustomer(idx));}
@@ -733,7 +733,7 @@ internal sealed class CRM:Form {
             var session=new ReferenceSession{Cif=customer.Cif,Contract=customer.Contract,FirstPhone=firstPhone,
                 RefPhone=refPhone,RefName=customer.ReferenceName,FirstScenario=outcome};
             pendingReference=session;
-            if(!StartBridge(customer,refPhone)){
+            if(!StartBridge(customer,refPhone,true)){
                 pendingReference=null;
                 MessageBox.Show(this,"Chưa mở được cuộc gọi tham chiếu. Hãy mở báo cáo thủ công khi cần, không ghi nhầm.");
             }
