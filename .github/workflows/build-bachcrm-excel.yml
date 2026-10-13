@@ -1,0 +1,35 @@
+name: Build Bach CRM Excel standalone Windows
+on:
+  push:
+    branches:
+      - bachcrm-excel-isolated-build-20261013
+    paths:
+      - 'BachCRM_Excel/**'
+      - '.github/workflows/build-bachcrm-excel.yml'
+  workflow_dispatch:
+jobs:
+  windows-build:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile BachCRMExcel + independent EyeBeam bridge
+        shell: cmd
+        run: |
+          @echo off
+          set "fw=%WINDIR%\Microsoft.NET\Framework64\v4.0.30319"
+          if not exist "%fw%\csc.exe" set "fw=%WINDIR%\Microsoft.NET\Framework\v4.0.30319"
+          set "refs=/reference:System.dll /reference:System.Core.dll /reference:System.Drawing.dll /reference:System.Windows.Forms.dll /reference:System.Xml.dll /reference:System.Security.dll /reference:Microsoft.CSharp.dll /reference:%fw%\WPF\UIAutomationClient.dll /reference:%fw%\WPF\UIAutomationTypes.dll /reference:%fw%\WPF\WindowsBase.dll"
+          "%fw%\csc.exe" /nologo /target:winexe /platform:anycpu /codepage:65001 /out:"BachCRM_Excel\BachCRMExcel.exe" %refs% "BachCRM_Excel\src\BachCRMExcel.cs"
+          if errorlevel 1 exit /b 1
+          "%fw%\csc.exe" /nologo /target:winexe /platform:anycpu /codepage:65001 /out:"BachCRM_Excel\BachCRMExcelBridge.exe" %refs% "BachCRM_Excel\src\BachCRMExcelBridge.cs"
+          if errorlevel 1 exit /b 1
+          if not exist "BachCRM_Excel\BachCRMExcel.exe" exit /b 1
+          if not exist "BachCRM_Excel\BachCRMExcelBridge.exe" exit /b 1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: BachCRMExcel-Windows-exe
+          path: |
+            BachCRM_Excel/BachCRMExcel.exe
+            BachCRM_Excel/BachCRMExcelBridge.exe
+          retention-days: 14
