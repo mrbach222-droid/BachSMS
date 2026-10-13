@@ -7,6 +7,7 @@ on:
       - bachcrm-excel-v04-autoreport-20261013
       - bachcrm-excel-v05-cif-reports-20261013
       - bachcrm-excel-v06-preserve-scroll-20261013
+      - bachcrm-excel-v07-sms-followup-20261013
     paths:
       - 'BachCRM_Excel/**'
       - '.github/workflows/build-bachcrm-excel.yml'
