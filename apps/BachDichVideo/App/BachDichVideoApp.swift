@@ -10,9 +10,9 @@ struct BachDichVideoApp: App {
             HomeView(model: model, pip: pip)
                 .preferredColorScheme(.dark)
                 .onAppear { pip.onPause = { model.pause($0) } }
-                .onChange(of: scenePhase) { model.setForeground($0 != .background) }
-                .onChange(of: model.snapshot) { _ in pip.update(model.displaySnapshot, settings: model.settings, previewOnly: model.previewOnly) }
-                .onChange(of: model.previewOnly) { _ in pip.update(model.displaySnapshot, settings: model.settings, previewOnly: model.previewOnly) }
+                .onChange(of: scenePhase) { _, phase in model.setForeground(phase != .background) }
+                .onChange(of: model.snapshot) { pip.update(model.displaySnapshot, settings: model.settings, previewOnly: model.previewOnly) }
+                .onChange(of: model.previewOnly) { pip.update(model.displaySnapshot, settings: model.settings, previewOnly: model.previewOnly) }
         }
     }
 }

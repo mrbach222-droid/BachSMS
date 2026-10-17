@@ -54,7 +54,7 @@ struct HomeView: View {
                         .background(.white.opacity(0.07), in: Capsule())
                 }
             }
-            Text("BẢN THỬ 0.1.0 · tương thích từng app cần kiểm tra trên iPhone")
+            Text("BẢN THỬ 0.1.1 · tương thích từng app cần kiểm tra trên iPhone")
                 .font(.caption2).foregroundStyle(mint)
         }
     }
@@ -191,8 +191,8 @@ struct HomeView: View {
                     if !model.issue.isEmpty { Text(model.issue).font(.footnote) }
                 }
             }.navigationTitle("Cài đặt")
-                .onChange(of: model.settings) { _ in model.configurationChanged() }
-                .onChange(of: model.apiKey) { _ in model.configurationChanged() }
+                .onChange(of: model.settings) { model.configurationChanged() }
+                .onChange(of: model.apiKey) { model.configurationChanged() }
         }
     }
     private var help: some View {

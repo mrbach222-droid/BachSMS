@@ -1,12 +1,12 @@
-# Bách Dịch Video · 0.1.0
+# Bách Dịch Video · 0.1.1
 
 Ứng dụng iOS thử nghiệm: mở khung phụ đề nổi, bật chia sẻ màn hình rồi chuyển sang YouTube, TikTok hoặc Douyin để dịch nội dung sang tiếng Việt.
 
-**Gói này là mã nguồn, chưa phải IPA cài được. Chưa biên dịch bằng Xcode hoặc kiểm thử trên iPhone.**
+**Bản nguồn đã có quy trình build IPA unsigned. Bản 0.1.0 trước đó đã build thành công trên Xcode 16.4 và vượt qua 6 XCTest. Bản 0.1.1 đang được build lại sau khi thêm icon và chỉnh tương thích. Chưa kiểm thử trên iPhone.**
 
 ## Tính năng đã viết
 
-| Tính năng | Phạm vi bản 0.1.0 |
+| Tính năng | Phạm vi bản 0.1.1 |
 |---|---|
 | Dịch chữ/phụ đề | Đọc chữ tại máy bằng Vision; Gemini tự xác định ngôn ngữ và dịch sang Việt |
 | Vùng đọc | Giữa, nửa dưới hoặc nửa trên màn hình; chừa cạnh phải để giảm nút giao diện |
@@ -29,7 +29,7 @@ Những dòng trên mô tả mã nguồn đã triển khai, không phải kết 
 - Cần Gemini API key có quyền gọi model đã chọn. Gói Gemini Pro/Advanced không đồng nghĩa API không giới hạn hoặc miễn phí.
 - Model mặc định `gemini-flash-latest` là tên có thể thay đổi theo nhà cung cấp. Có thể sửa model trong app nếu tài khoản chưa được truy cập.
 
-**Lưu ý iOS mới:** tài liệu Apple hiện đánh dấu luồng ReplayKit là deprecated từ SDK iOS 27 và khuyến nghị ScreenCaptureKit. Gói 0.1.0 chưa có adapter ScreenCaptureKit và chưa xác nhận chạy trên iOS 27. Deprecated không tự chứng minh API đã ngừng hoạt động, nhưng không nên cam kết tương thích khi chưa build/test bằng SDK và máy tương ứng. Xem `Documentation/API_NOTES.md`.
+**Lưu ý iOS mới:** tài liệu Apple hiện đánh dấu luồng ReplayKit là deprecated từ SDK iOS 27 và khuyến nghị ScreenCaptureKit. Gói 0.1.1 chưa có adapter ScreenCaptureKit và chưa xác nhận chạy trên iOS 27. Deprecated không tự chứng minh API đã ngừng hoạt động, nhưng không nên cam kết tương thích khi chưa build/test bằng SDK và máy tương ứng. Xem `Documentation/API_NOTES.md`.
 
 ## Build trên Mac
 
@@ -57,7 +57,7 @@ open BachDichVideo.xcodeproj
 bash Scripts/build_unsigned.sh
 ```
 
-Đầu ra khi thành công: `build/BachDichVideo_v0.1.0_UNSIGNED.ipa`.
+Đầu ra khi thành công: `build/BachDichVideo_v0.1.1_UNSIGNED.ipa`.
 
 Script chỉ đóng gói khi archive có binary Mach-O và đúng version; không đổi đuôi ZIP mã nguồn thành IPA. IPA unsigned cần ký hợp lệ cho cả app và extension. Việc công cụ ký thông thường bỏ App Groups/Keychain Sharing sẽ làm app không hoạt động đúng.
 
@@ -67,9 +67,9 @@ Script chỉ đóng gói khi archive có binary Mach-O và đúng version; khôn
 2. Giải nén gói này. Đưa **nội dung bên trong thư mục BachDichVideo** vào gốc repository: phải thấy `project.yml`, `App`, `Shared`, `Broadcast`, `Scripts` và `.github` ngay ở gốc.
 3. Nếu tải file qua web mà thư mục `.github` chưa lên, tạo file `.github/workflows/build-ios.yml` và dùng đúng nội dung file đi kèm.
 4. Mở Actions → **Build Bach Dich Video iOS** → Run workflow.
-5. Khi workflow xanh, tải artifact `BachDichVideo-v0.1.0-UNSIGNED`. Nếu đỏ, xem bước Compile, test and package.
+5. Khi workflow xanh, tải artifact `BachDichVideo-v0.1.1-UNSIGNED`. Nếu đỏ, xem bước Compile, test and package.
 
-Workflow chưa được chạy trong phiên tạo mã nguồn này. GitHub có thể áp dụng hạn mức build macOS. Workflow tạo unsigned để kiểm tra build; không tự có quyền ký/cài lên máy.
+Workflow bản 0.1.0 đã chạy thành công tại nhánh build riêng trong BachSMS; lần build 0.1.1 cần đối chiếu kết quả mới. GitHub có thể áp dụng hạn mức build macOS. Workflow tạo unsigned để kiểm tra build; không tự có quyền ký/cài lên máy.
 
 ## Dùng sau khi đã cài bản ký hợp lệ
 
@@ -100,4 +100,4 @@ Workflow chưa được chạy trong phiên tạo mã nguồn này. GitHub có t
 - `Documentation/KIEM_THU.md`: kết quả kiểm tra thực sự đã chạy và checklist thiết bị.
 - `Documentation/API_NOTES.md`: API, nguồn chính thức và hướng nâng cấp iOS mới.
 
-Version: **0.1.0 / build 1** · Ngày chuẩn bị: **17/10/2026**.
+Version: **0.1.1 / build 1** · Ngày chuẩn bị: **17/10/2026**.

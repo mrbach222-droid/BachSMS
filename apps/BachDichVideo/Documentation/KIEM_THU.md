@@ -1,4 +1,4 @@
-# Kết quả kiểm tra · 0.1.0
+# Kết quả kiểm tra · 0.1.1
 
 Môi trường tạo mã nguồn: Linux, không có Swift toolchain, Xcode, iOS SDK hay iPhone được kết nối.
 

@@ -16,7 +16,7 @@ Ba tab: **Dịch video · Cài đặt · Cách dùng**. Nền xanh đen, điểm
 6. Vision OCR hoặc nhận dạng tại máy → chữ → Gemini → kết quả gần nhất trong container dùng chung → render thành video caption cho PiP.
 7. Pause dừng xử lý và yêu cầu mới. Stop giải phóng OCR, Speech, mạng và tệp câu dịch; đóng PiP cũng kích hoạt pause.
 
-## Quyết định cho bản 0.1.0
+## Quyết định cho bản 0.1.1
 
 - Hai chế độ tách biệt để dễ xác định lỗi nguồn hình/tiếng, không dùng đồng thời và không dịch trùng một câu qua hai nguồn.
 - Giới hạn OCR một khung/giây và một khung đang xử lý, thu nhỏ hình xuống cạnh dài tối đa 960 trước OCR.
@@ -38,4 +38,4 @@ Ba tab: **Dịch video · Cài đặt · Cách dùng**. Nền xanh đen, điểm
 | Trải nghiệm | Chọn vùng chính xác hơn, tránh chữ giao diện và OCR đọc lại PiP |
 | Bản phát hành | Chữ ký/profile hợp lệ, đo pin/nhiệt, kiểm tra quyền riêng tư và yêu cầu phân phối |
 
-Các ý tưởng sau chỉ triển khai khi nền tảng hoạt động: nhận diện ngôn ngữ lời nói, dịch hai chiều, lưu câu học từ vựng do người dùng chọn, dịch tệp video và lồng tiếng. Chưa nằm trong bản 0.1.0.
+Các ý tưởng sau chỉ triển khai khi nền tảng hoạt động: nhận diện ngôn ngữ lời nói, dịch hai chiều, lưu câu học từ vựng do người dùng chọn, dịch tệp video và lồng tiếng. Chưa nằm trong bản 0.1.1.

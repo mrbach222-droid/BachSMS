@@ -4,7 +4,7 @@ Tra cứu ngày 17/10/2026. Chỉ dùng tài liệu chính thức để quyết 
 
 ## Thu nội dung
 
-Bản 0.1.0 dùng Broadcast Upload Extension với `RPBroadcastSampleHandler` và `RPSystemBroadcastPickerView`, phù hợp để làm nhánh thử tương thích iOS cũ. Extension nhận `.video` và `.audioApp`; bỏ `.audioMic`.
+Bản 0.1.1 dùng Broadcast Upload Extension với `RPBroadcastSampleHandler` và `RPSystemBroadcastPickerView`, phù hợp để làm nhánh thử tương thích iOS cũ. Extension nhận `.video` và `.audioApp`; bỏ `.audioMic`.
 
 Tài liệu Apple hiện đánh dấu ReplayKit deprecated trong SDK iOS 27 và khuyến nghị ScreenCaptureKit. Vì vậy chưa coi nhánh ReplayKit là giải pháp dài hạn cho iOS mới. Chưa triển khai adapter ScreenCaptureKit: cần build trên SDK mới, cấu hình `screen-capture` background mode và thử trên iOS 27 thật trước. Không thêm API mới chưa được kiểm chứng vào build cũ.
 

@@ -19,14 +19,14 @@ for bundle in (app, extension):
     if magic not in (bytes.fromhex('cffaedfe'), bytes.fromhex('feedfacf'),
                      bytes.fromhex('cafebabe'), bytes.fromhex('bebafeca')):
         raise SystemExit(f'Executable is not a Mach-O binary: {executable}')
-    if info['CFBundleShortVersionString'] != '0.1.0':
+    if info['CFBundleShortVersionString'] != '0.1.1':
         raise SystemExit('Version mismatch; refusing to package')
 payload = root / 'build/package/Payload'
 if payload.parent.exists():
     shutil.rmtree(payload.parent)
 payload.mkdir(parents=True)
 shutil.copytree(app, payload / app.name, symlinks=True)
-output = root / 'build/BachDichVideo_v0.1.0_UNSIGNED.ipa'
+output = root / 'build/BachDichVideo_v0.1.1_UNSIGNED.ipa'
 with zipfile.ZipFile(output, 'w', zipfile.ZIP_DEFLATED) as archive:
     for file in sorted(payload.rglob('*')):
         if file.is_file():

@@ -1,4 +1,5 @@
 import ReplayKit
+@preconcurrency import CoreMedia
 import Foundation
 
 final class SampleHandler: RPBroadcastSampleHandler {
