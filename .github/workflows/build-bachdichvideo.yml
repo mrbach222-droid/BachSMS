@@ -1,0 +1,40 @@
+name: Bach Dich Video - IPA build
+on:
+  pull_request:
+    paths:
+      - 'apps/BachDichVideo/**'
+      - '.github/workflows/build-bachdichvideo.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: apps/BachDichVideo
+    steps:
+      - uses: actions/checkout@v4
+      - name: Xcode version
+        run: xcodebuild -version
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - name: Compile, test and package
+        run: |
+          mkdir -p build
+          set -o pipefail
+          bash Scripts/build_unsigned.sh 2>&1 | tee build/build.log
+      - uses: actions/upload-artifact@v4
+        with:
+          name: BachDichVideo-v0.1.0-UNSIGNED
+          path: apps/BachDichVideo/build/BachDichVideo_v0.1.0_UNSIGNED.ipa
+          if-no-files-found: error
+          retention-days: 14
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: BachDichVideo-build-log
+          path: apps/BachDichVideo/build/build.log
+          if-no-files-found: ignore
+          retention-days: 14
