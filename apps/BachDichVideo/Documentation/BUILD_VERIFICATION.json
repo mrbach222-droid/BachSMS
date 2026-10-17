@@ -1,0 +1,29 @@
+{
+  "ipa": "BachDichVideo_v0.2.0_UNSIGNED.ipa",
+  "sha256": "897d840e4d2b18030ab436ef40173e0245ec844774cac0a1ef67e377ce7aa598",
+  "size": 242994,
+  "commit": "7daa627604c34d2ed60fb5dcfab4f747d66a414a",
+  "run": 39024861778,
+  "testsPassed": 15,
+  "iPhoneRuntimeVerified": false,
+  "bundles": [
+    {
+      "bundle": "Payload/BachDichVideo.app/",
+      "bundleID": "vn.bach.BachDichVideo",
+      "version": "0.2.0",
+      "build": "4",
+      "architecture": "arm64",
+      "binaryBytes": 457480,
+      "sharedGroups": false
+    },
+    {
+      "bundle": "Payload/BachDichVideo.app/PlugIns/Broadcast.appex/",
+      "bundleID": "vn.bach.BachDichVideo.Broadcast",
+      "version": "0.2.0",
+      "build": "4",
+      "architecture": "arm64",
+      "binaryBytes": 152560,
+      "sharedGroups": false
+    }
+  ]
+}

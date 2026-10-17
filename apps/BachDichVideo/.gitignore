@@ -1,0 +1,9 @@
+build/
+.build/
+*.xcodeproj/
+*.xcuserstate
+xcuserdata/
+.DS_Store
+*.p12
+*.mobileprovision
+Config.local.xcconfig

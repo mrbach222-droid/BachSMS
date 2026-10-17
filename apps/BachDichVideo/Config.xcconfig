@@ -1,0 +1,4 @@
+// The signer may replace this ID and the corresponding extension prefixes.
+// No App Groups or shared Keychain entitlement is required.
+BACH_BUNDLE_ID = vn.bach.BachDichVideo
+// DEVELOPMENT_TEAM = YOUR_TEAM_ID
