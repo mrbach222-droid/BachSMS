@@ -6,9 +6,5 @@
 	<array>
 		<string>$(BACH_APP_GROUP)</string>
 	</array>
-	<key>keychain-access-groups</key>
-	<array>
-		<string>$(AppIdentifierPrefix)$(BACH_KEYCHAIN_ID)</string>
-	</array>
 </dict>
 </plist>
