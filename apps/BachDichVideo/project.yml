@@ -14,8 +14,8 @@ configFiles:
 settings:
   base:
     SWIFT_VERSION: '5.0'
-    MARKETING_VERSION: '0.1.1'
-    CURRENT_PROJECT_VERSION: '3'
+    MARKETING_VERSION: '0.2.0'
+    CURRENT_PROJECT_VERSION: '4'
     TARGETED_DEVICE_FAMILY: '1,2'
     CODE_SIGN_STYLE: Automatic
     ENABLE_USER_SCRIPT_SANDBOXING: YES
@@ -33,10 +33,11 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: $(BACH_BUNDLE_ID)
         PRODUCT_NAME: BachDichVideo
         INFOPLIST_FILE: App/Info.plist
-        CODE_SIGN_ENTITLEMENTS: App/BachDichVideo.entitlements
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
     dependencies:
       - target: Broadcast
+        embed: true
+      - target: SetupUI
         embed: true
   Broadcast:
     type: app-extension
@@ -45,12 +46,27 @@ targets:
       - path: Broadcast
         excludes: ['Info.plist', '*.entitlements']
       - path: Shared
+        excludes: ['APIKeyStore.swift', 'SharedStore.swift', 'GeminiTranslator.swift', 'TranslationPolicy.swift', 'LocalHTTPServer.swift']
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: $(BACH_BUNDLE_ID).Broadcast
         PRODUCT_NAME: Broadcast
         INFOPLIST_FILE: Broadcast/Info.plist
-        CODE_SIGN_ENTITLEMENTS: Broadcast/Broadcast.entitlements
+        SKIP_INSTALL: YES
+        APPLICATION_EXTENSION_API_ONLY: YES
+  SetupUI:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: SetupUI
+        excludes: ['Info.plist']
+      - path: Shared
+        excludes: ['APIKeyStore.swift', 'SharedStore.swift', 'GeminiTranslator.swift', 'TranslationPolicy.swift', 'LocalHTTPServer.swift']
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(BACH_BUNDLE_ID).SetupUI
+        PRODUCT_NAME: SetupUI
+        INFOPLIST_FILE: SetupUI/Info.plist
         SKIP_INSTALL: YES
         APPLICATION_EXTENSION_API_ONLY: YES
 schemes:

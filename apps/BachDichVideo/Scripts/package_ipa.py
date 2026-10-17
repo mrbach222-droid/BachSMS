@@ -8,7 +8,8 @@ import zipfile
 root = Path(__file__).resolve().parents[1]
 app = root / 'build/BachDichVideo.xcarchive/Products/Applications/BachDichVideo.app'
 extension = app / 'PlugIns/Broadcast.appex'
-for bundle in (app, extension):
+setup = app / 'PlugIns/SetupUI.appex'
+for bundle in (app, extension, setup):
     with (bundle / 'Info.plist').open('rb') as stream:
         info = plistlib.load(stream)
     executable = bundle / info['CFBundleExecutable']
@@ -19,17 +20,23 @@ for bundle in (app, extension):
     if magic not in (bytes.fromhex('cffaedfe'), bytes.fromhex('feedfacf'),
                      bytes.fromhex('cafebabe'), bytes.fromhex('bebafeca')):
         raise SystemExit(f'Executable is not a Mach-O binary: {executable}')
-    if info['CFBundleShortVersionString'] != '0.1.1':
+    if info['CFBundleShortVersionString'] != '0.2.0':
         raise SystemExit('Version mismatch; refusing to package')
+    if info['CFBundleVersion'] != '4' or 'SharedGroup' in info or 'SharedKeychainGroup' in info:
+        raise SystemExit('Unexpected build number or legacy shared entitlement configuration')
+    if bundle == extension and info['NSExtension'].get('RPBroadcastProcessMode') != 'RPBroadcastProcessModeSampleBuffer':
+        raise SystemExit('ReplayKit sample-buffer mode is not configured')
+    if bundle == setup and info['NSExtension'].get('NSExtensionPointIdentifier') != 'com.apple.broadcast-services-setupui':
+        raise SystemExit('Missing ReplayKit setup extension')
 payload = root / 'build/package/Payload'
 if payload.parent.exists():
     shutil.rmtree(payload.parent)
 payload.mkdir(parents=True)
 shutil.copytree(app, payload / app.name, symlinks=True)
-output = root / 'build/BachDichVideo_v0.1.1_UNSIGNED.ipa'
+output = root / 'build/BachDichVideo_v0.2.0_UNSIGNED.ipa'
 with zipfile.ZipFile(output, 'w', zipfile.ZIP_DEFLATED) as archive:
     for file in sorted(payload.rglob('*')):
         if file.is_file():
             archive.write(file, file.relative_to(payload.parent))
 print(output)
-print('Unsigned build only. App Groups + shared Keychain need valid signed entitlements.')
+print('Unsigned build. Sign the app and both extensions; no App Groups or shared Keychain required.')

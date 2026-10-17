@@ -27,8 +27,8 @@ jobs:
           bash Scripts/build_unsigned.sh 2>&1 | tee build/build.log
       - uses: actions/upload-artifact@v4
         with:
-          name: BachDichVideo-v0.1.1-UNSIGNED
-          path: apps/BachDichVideo/build/BachDichVideo_v0.1.1_UNSIGNED.ipa
+          name: BachDichVideo-v0.2.0-UNSIGNED
+          path: apps/BachDichVideo/build/BachDichVideo_v0.2.0_UNSIGNED.ipa
           if-no-files-found: error
           retention-days: 14
       - uses: actions/upload-artifact@v4
@@ -38,3 +38,4 @@ jobs:
           path: apps/BachDichVideo/build/build.log
           if-no-files-found: ignore
           retention-days: 14
+

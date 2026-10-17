@@ -19,6 +19,6 @@ jobs:
         run: bash Scripts/build_unsigned.sh
       - uses: actions/upload-artifact@v4
         with:
-          name: BachDichVideo-v0.1.1-UNSIGNED
-          path: build/BachDichVideo_v0.1.1_UNSIGNED.ipa
+          name: BachDichVideo-v0.2.0-UNSIGNED
+          path: build/BachDichVideo_v0.2.0_UNSIGNED.ipa
           if-no-files-found: error

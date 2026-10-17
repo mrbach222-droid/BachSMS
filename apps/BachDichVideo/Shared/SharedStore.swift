@@ -1,8 +1,13 @@
 import Foundation
 
 enum SharedStore {
-    static var group: String { Bundle.main.object(forInfoDictionaryKey: "SharedGroup") as? String ?? "" }
-    static var container: URL? { FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: group) }
+    // App-private settings only. This is intentionally NOT an App Group container.
+    static var container: URL? {
+        guard let root = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else { return nil }
+        let folder = root.appendingPathComponent("BachDichVideo", isDirectory: true)
+        do { try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true); return folder }
+        catch { return nil }
+    }
 
     static func read<T: Decodable>(_ name: String, as type: T.Type) -> T? {
         guard let url = container?.appendingPathComponent(name),
@@ -31,8 +36,8 @@ enum StoreError: LocalizedError {
     case noGroup, keychain(Int32)
     var errorDescription: String? {
         switch self {
-        case .noGroup: return "Chưa có quyền App Group. Cần ký đúng cấu hình cho app và extension."
-        case .keychain(let code): return "Không truy cập được khóa API (Keychain \(code)). Kiểm tra chữ ký và quyền dùng chung."
+        case .noGroup: return "Không mở được thư mục cài đặt riêng của app."
+        case .keychain(let code): return "Không truy cập được Keychain riêng của app (\(code)). Kiểm tra lại bản ký."
         }
     }
 }

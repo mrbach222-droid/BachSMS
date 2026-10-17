@@ -1,6 +1,4 @@
-// Replace these identifiers with IDs registered to your Apple Developer team.
-// Register the same App Group for BOTH app and extension.
-// Its identifier is also the shared Keychain access group (no Team prefix).
+// The signer may replace this ID and the corresponding extension prefixes.
+// No App Groups or shared Keychain entitlement is required.
 BACH_BUNDLE_ID = vn.bach.BachDichVideo
-BACH_APP_GROUP = group.vn.bach.BachDichVideo
 // DEVELOPMENT_TEAM = YOUR_TEAM_ID

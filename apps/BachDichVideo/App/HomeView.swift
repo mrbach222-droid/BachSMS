@@ -1,21 +1,9 @@
 import SwiftUI
-import ReplayKit
-
-struct BroadcastPicker: UIViewRepresentable {
-    func makeUIView(context: Context) -> RPSystemBroadcastPickerView {
-        let view = RPSystemBroadcastPickerView(frame: CGRect(x: 0, y: 0, width: 60, height: 60))
-        view.preferredExtension = (Bundle.main.bundleIdentifier ?? "") + ".Broadcast"
-        view.showsMicrophoneButton = false
-        view.tintColor = .white
-        view.accessibilityLabel = "Bắt đầu hoặc dừng chia sẻ màn hình cho Bách Dịch Video"
-        return view
-    }
-    func updateUIView(_ uiView: RPSystemBroadcastPickerView, context: Context) {}
-}
 
 struct HomeView: View {
     @ObservedObject var model: SessionModel
     @ObservedObject var pip: CaptionPiPController
+    @ObservedObject var broadcast: BroadcastSession
     @State private var selectedTab = 0
     private let mint = Color(red: 0.39, green: 0.9, blue: 0.78)
 
@@ -54,7 +42,7 @@ struct HomeView: View {
                         .background(.white.opacity(0.07), in: Capsule())
                 }
             }
-            Text("BẢN THỬ 0.1.1 · tương thích từng app cần kiểm tra trên iPhone")
+            Text("BẢN THỬ 0.2.0 · sửa kết nối khi cài bằng IPA")
                 .font(.caption2).foregroundStyle(mint)
         }
     }
@@ -87,17 +75,19 @@ struct HomeView: View {
                 Label("2. Bật khung dịch nổi", systemImage: "pip.enter")
                     .fontWeight(.bold).frame(maxWidth: .infinity).padding(.vertical, 7)
             }.buttonStyle(.borderedProminent).disabled(!model.ready && !model.live && !model.previewOnly)
-            HStack(spacing: 12) {
-                BroadcastPicker().frame(width: 60, height: 60)
-                    .background(mint.opacity(0.15), in: RoundedRectangle(cornerRadius: 14))
-                    .allowsHitTesting(model.ready && !model.previewOnly || model.live)
-                    .opacity(model.ready && !model.previewOnly || model.live ? 1 : 0.35)
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("3. Chia sẻ màn hình").fontWeight(.semibold)
-                    Text("Chọn Bách Dịch Video → Bắt đầu phát. Sau đó quay sang app xem video.")
-                        .font(.caption).foregroundStyle(.secondary)
-                }
+            if !model.pairingCode.isEmpty {
+                VStack(spacing: 6) {
+                    Text("Mã ghép nối của phiên này").font(.caption).foregroundStyle(.secondary)
+                    Text(model.pairingCode).font(.system(size: 34, weight: .bold, design: .monospaced))
+                        .privacySensitive().foregroundStyle(mint)
+                    Text("Nhớ 6 số này để nhập ở bước tiếp theo. Mã dùng một lần, hết hạn sau 2 phút.")
+                        .font(.caption).multilineTextAlignment(.center).foregroundStyle(.secondary)
+                }.padding(14).frame(maxWidth: .infinity)
+                    .background(mint.opacity(0.07), in: RoundedRectangle(cornerRadius: 14))
             }
+            BroadcastLaunchButton(session: broadcast, enabled: model.ready && !model.previewOnly && !model.live && pip.active)
+                .frame(height: 52)
+            if !broadcast.message.isEmpty { Text(broadcast.message).font(.caption).foregroundStyle(.secondary) }
             if model.live {
                 HStack {
                     Button(model.snapshot.paused ? "Tiếp tục" : "Tạm dừng") { model.pause(!model.snapshot.paused) }
@@ -161,7 +151,7 @@ struct HomeView: View {
                         Text("Thử nghiệm: cần máy và ngôn ngữ hỗ trợ nhận dạng tại chỗ. App không mở micro và không gửi âm thanh lên Gemini.")
                             .font(.caption).foregroundStyle(.secondary)
                     }
-                }.disabled(model.live)
+                }.disabled(model.live || model.preparing)
                 Section("Dịch sang tiếng Việt · Gemini") {
                     SecureField("Gemini API key", text: $model.apiKey)
                         .textInputAutocapitalization(.never).autocorrectionDisabled().privacySensitive()
@@ -173,9 +163,9 @@ struct HomeView: View {
                     Toggle("Cho phép gửi chữ đã nhận diện đến Gemini để dịch", isOn: $model.settings.cloudConsent)
                     Button(model.checkingAPI ? "Đang kiểm tra…" : "Kiểm tra API bằng một câu mẫu") { model.checkAPI() }
                         .disabled(model.checkingAPI || !model.settings.cloudConsent)
-                    Text("Chỉ bật chia sẻ màn hình khi xem nội dung cần dịch. Phần chữ trong vùng chọn hoặc lời nói được chép lại sẽ gửi đến Google. App không lưu video và không có lịch sử dài hạn.")
+                    Text("Chỉ phần chữ đã nhận diện được gửi đến Google. API key lưu riêng trong app; phần thu màn hình kết nối bằng mã một lần ngay trên iPhone. App không lưu video.")
                         .font(.caption).foregroundStyle(.secondary)
-                }.disabled(model.live)
+                }.disabled(model.live || model.preparing)
                 Section("Khung dịch và tần suất") {
                     Toggle("Hiện cả câu gốc", isOn: $model.settings.showOriginal)
                     HStack { Text("Cỡ chữ"); Slider(value: $model.settings.fontSize, in: 20...36, step: 2) }
@@ -183,10 +173,10 @@ struct HomeView: View {
                     Stepper("Tối đa \(model.settings.sessionLimit) yêu cầu/phiên", value: $model.settings.sessionLimit, in: 10...600, step: 10)
                     Text("Mặc định 120 yêu cầu/phiên, tối thiểu 3 giây/lần. Đây là giới hạn trong app; không thay đổi hạn mức Google.")
                         .font(.caption).foregroundStyle(.secondary)
-                }.disabled(model.live)
+                }.disabled(model.live || model.preparing)
                 Section {
-                    Button("Lưu và chuẩn bị phiên dịch") { model.save(); pip.update(model.displaySnapshot, settings: model.settings, previewOnly: model.previewOnly) }
-                        .disabled(model.live)
+                    Button(model.preparing ? "Đang chuẩn bị…" : "Lưu và chuẩn bị phiên dịch") { model.save(); pip.update(model.displaySnapshot, settings: model.settings, previewOnly: model.previewOnly) }
+                        .disabled(model.live || model.preparing)
                     Button("Xóa API key", role: .destructive) { model.deleteKey() }.disabled(model.live)
                     if !model.issue.isEmpty { Text(model.issue).font(.footnote) }
                 }
@@ -201,7 +191,7 @@ struct HomeView: View {
                 Section("Bắt đầu một phiên") {
                     Text("1. Nhập API key, chọn chế độ, bật đồng ý gửi chữ và lưu.")
                     Text("2. Bật khung dịch nổi. Nếu chỉ muốn kiểm tra hiển thị, dùng Chữ mẫu trước.")
-                    Text("3. Bấm biểu tượng chia sẻ màn hình, chọn Bách Dịch Video rồi Bắt đầu phát.")
+                    Text("3. Ghi nhớ mã 6 số, bấm Ghép nối / bắt đầu chia sẻ rồi nhập mã trong màn hình ghép nối. Không bắt đầu trực tiếp từ Trung tâm điều khiển.")
                     Text("4. Mở YouTube, TikTok hoặc Douyin và phát video. Với chế độ phụ đề, bật phụ đề gốc nếu video có.")
                     Text("5. Kéo khung nổi ra ngoài vùng đọc chữ. Thử đổi vùng đọc nếu TikTok/Douyin có nhiều chữ giao diện.")
                 }
@@ -214,7 +204,7 @@ struct HomeView: View {
                     Text("Chưa xác nhận tương thích trên thiết bị thật với cả ba app. Nội dung được bảo vệ có thể không cung cấp hình hoặc tiếng.")
                     Text("Nhận dạng lời nói trong extension và việc duy trì khung nổi cần kiểm tra trên iPhone. Nếu lỗi, dùng chế độ đọc chữ hoặc báo lại trạng thái hiển thị.")
                     Text("Khung nổi có nền kín và vị trí/kích thước do iOS quản lý. Bản dịch có độ trễ, có thể sai tên hoặc ngữ cảnh.")
-                    Text("Bản thử không dịch khi app này đang ở trước màn hình, không tự bật lại sau khi bị hệ thống dừng, và dừng sau 30 phút mỗi phiên.")
+                    Text("Bản này dùng kết nối trong máy, không yêu cầu App Groups/Keychain chung. Cần giữ khung nổi hoạt động; nếu iOS dừng app chính, phiên dịch sẽ dừng theo. Mỗi phiên tối đa 30 phút.")
                 }
             }.navigationTitle("Cách dùng")
         }

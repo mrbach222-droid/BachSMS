@@ -3,11 +3,10 @@ import Security
 
 enum APIKeyStore {
     private static var base: [String: Any] {
-        var query: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
+        let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
                                   kSecAttrService as String: "BachDichVideo.Gemini",
                                   kSecAttrAccount as String: "translation"]
-        if let group = Bundle.main.object(forInfoDictionaryKey: "SharedKeychainGroup") as? String,
-           !group.isEmpty { query[kSecAttrAccessGroup as String] = group }
+        // Use the app's signed default Keychain group. API keys never go to an extension.
         return query
     }
     static func load() throws -> String {

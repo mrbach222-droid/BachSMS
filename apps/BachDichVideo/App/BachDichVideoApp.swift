@@ -7,7 +7,7 @@ struct BachDichVideoApp: App {
     @Environment(\.scenePhase) private var scenePhase
     var body: some Scene {
         WindowGroup {
-            HomeView(model: model, pip: pip)
+            HomeView(model: model, pip: pip, broadcast: model.broadcast)
                 .preferredColorScheme(.dark)
                 .onAppear { pip.onPause = { model.pause($0) } }
                 .onChange(of: scenePhase) { _, phase in model.setForeground(phase != .background) }

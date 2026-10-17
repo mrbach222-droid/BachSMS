@@ -11,17 +11,23 @@ final class SessionModel: ObservableObject {
     @Published var speechPermission = "Chưa kiểm tra"
     @Published var previewOnly = false
     @Published var checkingAPI = false
+    @Published var pairingCode = ""
+    @Published var preparing = false
+    let broadcast = BroadcastSession()
+    private let host = TranslationHost()
     private var apiCheck: GeminiTranslator?
-    private var timer: Timer?
     private var foreground = true
 
     init() {
         do { apiKey = try APIKeyStore.load() } catch { issue = error.localizedDescription }
-        timer = Timer(timeInterval: 0.5, repeats: true) { [weak self] _ in self?.poll() }
-        if let timer = timer { RunLoop.main.add(timer, forMode: .common) }
+        host.onSnapshot = { [weak self] snapshot in
+            guard let self = self, !self.previewOnly else { return }
+            self.snapshot = snapshot
+            if snapshot.active { self.pairingCode = "" }
+        }
+        broadcast.onFinished = { [weak self] in self?.captureFinished() }
         setForeground(true)
     }
-    deinit { timer?.invalidate() }
     var live: Bool { snapshot.isFresh }
 
     func save() {
@@ -39,31 +45,35 @@ final class SessionModel: ObservableObject {
             settings.fontSize = min(36, max(20, settings.fontSize))
             try APIKeyStore.save(apiKey)
             try SharedStore.write(settings, to: "settings.json")
-            try SharedStore.write(CaptureControl(paused: false, stop: false, appVisible: foreground), to: "control.json")
             SharedStore.removeSnapshot()
             previewOnly = false; snapshot = CaptureSnapshot()
-            issue = "Đã lưu. Bật khung nổi, rồi bấm Chia sẻ màn hình."
-            ready = true
+            preparing = true; ready = false
+            host.prepare(settings: settings, key: apiKey, foreground: foreground) { [weak self] result in
+                guard let self = self else { return }
+                self.preparing = false
+                switch result {
+                case .success(let code):
+                    self.pairingCode = code; self.ready = true
+                    self.issue = "Đã lưu API key riêng trong app. Bật khung nổi rồi nhập mã ghép nối 6 số khi được hỏi."
+                case .failure(let error): self.issue = error.localizedDescription
+                }
+            }
         } catch { ready = false; issue = error.localizedDescription }
     }
-    func configurationChanged() { ready = false; previewOnly = false }
+    func configurationChanged() {
+        if ready && !live { host.stop() }
+        ready = false; previewOnly = false; pairingCode = ""
+    }
     func setForeground(_ visible: Bool) {
         foreground = visible
-        var control = SharedStore.control
-        control.appVisible = visible
-        do { try SharedStore.write(control, to: "control.json") }
-        catch { issue = error.localizedDescription }
+        host.setForeground(visible)
     }
     func pause(_ paused: Bool) {
-        var control = SharedStore.control; control.paused = paused
-        do { try SharedStore.write(control, to: "control.json") }
-        catch { issue = error.localizedDescription }
+        host.pause(paused)
     }
     func stop() {
         previewOnly = false; ready = false
-        var control = SharedStore.control; control.stop = true; control.paused = true
-        do { try SharedStore.write(control, to: "control.json") }
-        catch { issue = error.localizedDescription }
+        pairingCode = ""; host.stop(); broadcast.stop()
         issue = "Đang yêu cầu dừng. Nếu biểu tượng chia sẻ màn hình còn sáng, dừng trong Trung tâm điều khiển."
     }
     func demo() {
@@ -84,7 +94,7 @@ final class SessionModel: ObservableObject {
     }
     func deleteKey() {
         guard !live else { issue = "Dừng phiên trước khi xóa API key."; return }
-        do { try APIKeyStore.save(""); apiKey = ""; ready = false; issue = "Đã xóa API key khỏi thiết bị." }
+        do { host.stop(); try APIKeyStore.save(""); apiKey = ""; pairingCode = ""; ready = false; issue = "Đã xóa API key khỏi thiết bị." }
         catch { issue = error.localizedDescription }
     }
     func authorizeSpeech() {
@@ -112,16 +122,7 @@ final class SessionModel: ObservableObject {
             }
         }
     }
-    private func poll() {
-        guard !previewOnly else { return }
-        if let fresh = SharedStore.snapshot {
-            snapshot = fresh
-            if !fresh.active { ready = false }
-            if fresh.active && Date().timeIntervalSince(fresh.updatedAt) > 60 {
-                snapshot.source = ""; snapshot.translation = ""; snapshot.translatedAt = nil
-                SharedStore.removeSnapshot()
-                ready = false
-            }
-        }
+    private func captureFinished() {
+        host.stop(); ready = false; pairingCode = ""
     }
 }
