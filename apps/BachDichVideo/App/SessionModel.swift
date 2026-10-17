@@ -21,8 +21,10 @@ final class SessionModel: ObservableObject {
         do { apiKey = try APIKeyStore.load() } catch { issue = error.localizedDescription }
         host.onSnapshot = { [weak self] snapshot in
             guard let self = self, !self.previewOnly else { return }
+            let wasActive = self.snapshot.active
             self.snapshot = snapshot
             if snapshot.active { self.pairingCode = "" }
+            else if wasActive { self.ready = false; self.pairingCode = "" }
         }
         setForeground(true)
     }

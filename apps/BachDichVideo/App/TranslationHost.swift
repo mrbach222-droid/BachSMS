@@ -118,9 +118,8 @@ final class TranslationHost {
             gate?.invalidate(); translator?.cancel(); translator = nil; key = ""
         }
         if state.active && Date().timeIntervalSince(lastHeartbeat) > 12 {
-            state.source = ""; state.translation = ""; state.translatedAt = nil
-            state.message = "Mất kết nối với phần thu màn hình. Dừng phiên rồi bắt đầu lại."
-            command.stop = true
+            finish("Mất kết nối với phần thu màn hình. Bấm Lưu rồi bắt đầu phiên mới.")
+            gate?.invalidate(); translator?.cancel(); translator = nil; key = ""
         }
         state.paused = command.paused
         if !blockedMessage.isEmpty { state.message = blockedMessage }
