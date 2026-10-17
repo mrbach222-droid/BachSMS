@@ -7,6 +7,15 @@ import ReplayKit
 final class ScreenOCR {
     private let context = CIContext(options: [.cacheIntermediates: false])
 
+    func pairingCode(_ sample: CMSampleBuffer) throws -> String? {
+        guard let buffer = CMSampleBufferGetImageBuffer(sample) else { return nil }
+        let raw = CMGetAttachment(sample, key: RPVideoSampleOrientationKey as CFString, attachmentModeOut: nil) as? NSNumber
+        let orientation = CGImagePropertyOrientation(rawValue: raw?.uint32Value ?? 1) ?? .up
+        let image = CIImage(cvPixelBuffer: buffer)
+        guard let cgImage = context.createCGImage(image, from: image.extent) else { return nil }
+        return try PairingQR.read(cgImage, orientation: orientation)
+    }
+
     func recognize(_ sample: CMSampleBuffer, region: SubtitleRegion) throws -> String {
         guard let buffer = CMSampleBufferGetImageBuffer(sample) else { return "" }
         let raw = CMGetAttachment(sample, key: RPVideoSampleOrientationKey as CFString,

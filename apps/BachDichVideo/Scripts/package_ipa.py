@@ -8,8 +8,7 @@ import zipfile
 root = Path(__file__).resolve().parents[1]
 app = root / 'build/BachDichVideo.xcarchive/Products/Applications/BachDichVideo.app'
 extension = app / 'PlugIns/Broadcast.appex'
-setup = app / 'PlugIns/SetupUI.appex'
-for bundle in (app, extension, setup):
+for bundle in (app, extension):
     with (bundle / 'Info.plist').open('rb') as stream:
         info = plistlib.load(stream)
     executable = bundle / info['CFBundleExecutable']
@@ -26,8 +25,6 @@ for bundle in (app, extension, setup):
         raise SystemExit('Unexpected build number or legacy shared entitlement configuration')
     if bundle == extension and info['NSExtension'].get('RPBroadcastProcessMode') != 'RPBroadcastProcessModeSampleBuffer':
         raise SystemExit('ReplayKit sample-buffer mode is not configured')
-    if bundle == setup and info['NSExtension'].get('NSExtensionPointIdentifier') != 'com.apple.broadcast-services-setupui':
-        raise SystemExit('Missing ReplayKit setup extension')
 payload = root / 'build/package/Payload'
 if payload.parent.exists():
     shutil.rmtree(payload.parent)
@@ -39,4 +36,4 @@ with zipfile.ZipFile(output, 'w', zipfile.ZIP_DEFLATED) as archive:
         if file.is_file():
             archive.write(file, file.relative_to(payload.parent))
 print(output)
-print('Unsigned build. Sign the app and both extensions; no App Groups or shared Keychain required.')
+print('Unsigned build. Sign the app and its capture extension; no App Groups or shared Keychain required.')

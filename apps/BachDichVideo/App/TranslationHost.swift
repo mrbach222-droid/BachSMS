@@ -58,7 +58,17 @@ final class TranslationHost {
     }
     func setForeground(_ visible: Bool) { queue.async { self.command.appVisible = visible } }
     func pause(_ paused: Bool) { queue.async { self.command.paused = paused; self.policy.discardPending() } }
-    func stop() { queue.async { self.finish("Đã dừng phiên dịch."); self.shutdownInternal() } }
+    func stop() {
+        queue.async {
+            self.finish("Đã dừng phiên dịch.")
+            self.translator?.cancel(); self.translator = nil; self.key = ""
+            let id = self.state.sessionID
+            // Give the capture extension time to receive its stop command.
+            self.queue.asyncAfter(deadline: .now() + 2) {
+                if self.state.sessionID == id && self.command.stop { self.shutdownInternal() }
+            }
+        }
+    }
     private func handle(_ request: BridgeHTTPRequest) -> BridgeReply {
         let now = ProcessInfo.processInfo.systemUptime
         if request.path == "/pair" {
@@ -78,6 +88,7 @@ final class TranslationHost {
             translator?.cancel(); translator = nil; key = ""
             return BridgeReply(ok: true, command: BridgeCommand(stop: true))
         }
+        if command.stop { return BridgeReply(ok: true, command: command) }
         guard let update = try? JSONDecoder().decode(BridgeUpdate.self, from: request.body) else {
             return BridgeReply(ok: false, message: "Không đọc được dữ liệu cục bộ.")
         }

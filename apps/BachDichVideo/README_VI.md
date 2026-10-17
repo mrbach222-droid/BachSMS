@@ -1,16 +1,16 @@
 # Bách Dịch Video 0.2.0 — bản thử cho iOS 17+
 
-Bản sửa lỗi Keychain -34018 ở bản 0.1.1: API key lưu trong Keychain riêng của app. Không sử dụng App Groups hoặc Keychain dùng chung. App chính và ReplayKit nối với nhau qua 127.0.0.1, có mã ghép nối một lần; API key không chuyển vào extension.
+Bản sửa lỗi Keychain -34018 ở bản 0.1.1: API key lưu trong Keychain riêng của app. Không sử dụng App Groups hoặc Keychain dùng chung. Khởi động thu toàn màn hình bằng RPSystemBroadcastPickerView. App chính và ReplayKit nối với nhau qua 127.0.0.1, có mã ghép nối một lần; API key không chuyển vào extension.
 
 ## Cách dùng trên iPhone
 
-1. Ký và cài IPA, giữ cả Broadcast.appex và SetupUI.appex. Mở Cài đặt trong app, nhập Gemini API key, bật đồng ý gửi chữ, chọn Chữ / phụ đề và bấm Lưu.
-2. Trở về Dịch video, bật khung dịch nổi, ghi nhớ mã 6 số.
-3. Bấm Ghép nối / bắt đầu chia sẻ, nhập mã 6 số trong màn hình hệ thống. Không bắt đầu trực tiếp từ Trung tâm điều khiển vì phiên cần mã ghép nối.
+1. Ký và cài IPA, giữ Broadcast.appex. Mở Cài đặt trong app, nhập Gemini API key, bật đồng ý gửi chữ, chọn Chữ / phụ đề và bấm Lưu.
+2. Trở về Dịch video, bật khung dịch nổi, cuộn đến mã QR ghép nối.
+3. Bấm nút Bắt đầu chia sẻ màn hình, chọn Bách Dịch Video rồi Bắt đầu phát. Giữ mã QR hiện trên màn hình app đến khi mã biến mất và báo đã nối. Không nhập mã, không dùng camera. Nếu khung nổi che mã, kéo khung ra góc.
 4. Mở Douyin, TikTok hoặc YouTube, phát video có chữ/phụ đề gốc. Kéo khung nổi ra ngoài vùng đọc chữ. Có thể đổi vùng đọc ở Cài đặt sau khi dừng phiên.
 5. Dừng phiên trong app hoặc dừng ghi/phát màn hình qua Trung tâm điều khiển.
 
-Mã hết hạn sau 2 phút, dùng một lần, khóa sau 5 lần sai. Nếu hủy sau khi nhập mã, bấm Lưu để tạo phiên mới. Phiên tối đa 30 phút. Giữ khung nổi hoạt động để app chính tiếp tục xử lý; nếu iOS dừng app thì phiên sẽ mất kết nối.
+Mã hết hạn sau 2 phút, dùng một lần, khóa sau 5 lần sai. Nếu ghép nối không thành công, bấm Lưu để tạo phiên mới. Phiên tối đa 30 phút. Giữ khung nổi hoạt động để app chính tiếp tục xử lý; nếu iOS dừng app thì phiên sẽ mất kết nối.
 
 ## Giới hạn cần kiểm tra trên thiết bị thật
 
@@ -22,4 +22,4 @@ Chỉ chữ được nhận diện gửi đến Gemini bằng API key của ngư
 
 ## Build
 
-Trên macOS với Xcode và XcodeGen: `bash Scripts/build_unsigned.sh`. Script chạy XCTest, archive thiết bị arm64 không ký, kiểm tra cả ba bundle và đóng gói `build/BachDichVideo_v0.2.0_UNSIGNED.ipa`. File này cần được ký để cài. Không có chứng chỉ/provisioning profile riêng trong repository.
+Trên macOS với Xcode và XcodeGen: `bash Scripts/build_unsigned.sh`. Script chạy XCTest, archive thiết bị arm64 không ký, kiểm tra app và extension và đóng gói `build/BachDichVideo_v0.2.0_UNSIGNED.ipa`. File này cần được ký để cài. Không có chứng chỉ/provisioning profile riêng trong repository.

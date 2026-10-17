@@ -13,7 +13,6 @@ final class SessionModel: ObservableObject {
     @Published var checkingAPI = false
     @Published var pairingCode = ""
     @Published var preparing = false
-    let broadcast = BroadcastSession()
     private let host = TranslationHost()
     private var apiCheck: GeminiTranslator?
     private var foreground = true
@@ -25,7 +24,6 @@ final class SessionModel: ObservableObject {
             self.snapshot = snapshot
             if snapshot.active { self.pairingCode = "" }
         }
-        broadcast.onFinished = { [weak self] in self?.captureFinished() }
         setForeground(true)
     }
     var live: Bool { snapshot.isFresh }
@@ -54,7 +52,7 @@ final class SessionModel: ObservableObject {
                 switch result {
                 case .success(let code):
                     self.pairingCode = code; self.ready = true
-                    self.issue = "Đã lưu API key riêng trong app. Bật khung nổi rồi nhập mã ghép nối 6 số khi được hỏi."
+                    self.issue = "Đã lưu API key riêng trong app. Bật khung nổi rồi chia sẻ màn hình; giữ mã QR hiện đến khi báo đã nối."
                 case .failure(let error): self.issue = error.localizedDescription
                 }
             }
@@ -73,7 +71,7 @@ final class SessionModel: ObservableObject {
     }
     func stop() {
         previewOnly = false; ready = false
-        pairingCode = ""; host.stop(); broadcast.stop()
+        pairingCode = ""; host.stop()
         issue = "Đang yêu cầu dừng. Nếu biểu tượng chia sẻ màn hình còn sáng, dừng trong Trung tâm điều khiển."
     }
     func demo() {
@@ -121,8 +119,5 @@ final class SessionModel: ObservableObject {
                 self.apiCheck?.cancel(); self.apiCheck = nil
             }
         }
-    }
-    private func captureFinished() {
-        host.stop(); ready = false; pairingCode = ""
     }
 }

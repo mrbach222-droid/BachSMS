@@ -3,7 +3,6 @@ import SwiftUI
 struct HomeView: View {
     @ObservedObject var model: SessionModel
     @ObservedObject var pip: CaptionPiPController
-    @ObservedObject var broadcast: BroadcastSession
     @State private var selectedTab = 0
     private let mint = Color(red: 0.39, green: 0.9, blue: 0.78)
 
@@ -76,18 +75,14 @@ struct HomeView: View {
                     .fontWeight(.bold).frame(maxWidth: .infinity).padding(.vertical, 7)
             }.buttonStyle(.borderedProminent).disabled(!model.ready && !model.live && !model.previewOnly)
             if !model.pairingCode.isEmpty {
-                VStack(spacing: 6) {
-                    Text("Mã ghép nối của phiên này").font(.caption).foregroundStyle(.secondary)
-                    Text(model.pairingCode).font(.system(size: 34, weight: .bold, design: .monospaced))
-                        .privacySensitive().foregroundStyle(mint)
-                    Text("Nhớ 6 số này để nhập ở bước tiếp theo. Mã dùng một lần, hết hạn sau 2 phút.")
-                        .font(.caption).multilineTextAlignment(.center).foregroundStyle(.secondary)
-                }.padding(14).frame(maxWidth: .infinity)
-                    .background(mint.opacity(0.07), in: RoundedRectangle(cornerRadius: 14))
+                PairingCodeView(code: model.pairingCode)
             }
-            BroadcastLaunchButton(session: broadcast, enabled: model.ready && !model.previewOnly && !model.live && pip.active)
-                .frame(height: 52)
-            if !broadcast.message.isEmpty { Text(broadcast.message).font(.caption).foregroundStyle(.secondary) }
+            HStack {
+                Text("3. Bắt đầu chia sẻ màn hình").font(.subheadline.bold())
+                Spacer()
+                BroadcastPicker(enabled: model.ready && !model.previewOnly && !model.live && pip.active)
+                    .frame(width: 54, height: 54)
+            }
             if model.live {
                 HStack {
                     Button(model.snapshot.paused ? "Tiếp tục" : "Tạm dừng") { model.pause(!model.snapshot.paused) }
@@ -191,7 +186,7 @@ struct HomeView: View {
                 Section("Bắt đầu một phiên") {
                     Text("1. Nhập API key, chọn chế độ, bật đồng ý gửi chữ và lưu.")
                     Text("2. Bật khung dịch nổi. Nếu chỉ muốn kiểm tra hiển thị, dùng Chữ mẫu trước.")
-                    Text("3. Ghi nhớ mã 6 số, bấm Ghép nối / bắt đầu chia sẻ rồi nhập mã trong màn hình ghép nối. Không bắt đầu trực tiếp từ Trung tâm điều khiển.")
+                    Text("3. Bấm nút chia sẻ màn hình, chọn Bách Dịch Video và Bắt đầu phát. Giữ mã QR trong app hiện đến khi mã biến mất và báo đã nối. Không cần nhập hay dùng camera quét mã.")
                     Text("4. Mở YouTube, TikTok hoặc Douyin và phát video. Với chế độ phụ đề, bật phụ đề gốc nếu video có.")
                     Text("5. Kéo khung nổi ra ngoài vùng đọc chữ. Thử đổi vùng đọc nếu TikTok/Douyin có nhiều chữ giao diện.")
                 }

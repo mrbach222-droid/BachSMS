@@ -2,6 +2,13 @@ import XCTest
 @testable import BachDichCore
 
 final class BridgeTests: XCTestCase {
+    func testPairingQRRoundTripThroughVision() throws {
+        let image = try XCTUnwrap(PairingQR.image(code: "012345"))
+        XCTAssertEqual(try PairingQR.read(image), "012345")
+        XCTAssertNil(PairingQR.code(from: "https://example.com/012345"))
+        XCTAssertNil(PairingQR.code(from: "BDV-PAIR:1234567"))
+        XCTAssertNil(PairingQR.code(from: "BDV-PAIR:１２３４５６"))
+    }
     func testPairingRequiresCodeAndCanOnlyHappenOnce() {
         var gate = PairingGate(code: "123456", token: "secret", now: 100)
         XCTAssertFalse(gate.accepts("secret", now: 101))

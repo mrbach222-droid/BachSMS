@@ -7,6 +7,6 @@ let package = Package(
     targets: [
         .target(name: "BachDichCore", path: "Shared",
                 exclude: ["SharedStore.swift", "APIKeyStore.swift", "GeminiTranslator.swift"],
-                sources: ["Models.swift", "TranslationPolicy.swift", "BridgeProtocol.swift", "BridgeClient.swift", "LocalHTTPServer.swift"]),
+                sources: ["Models.swift", "TranslationPolicy.swift", "BridgeProtocol.swift", "BridgeClient.swift", "LocalHTTPServer.swift", "PairingQR.swift"]),
         .testTarget(name: "BachDichCoreTests", dependencies: ["BachDichCore"], path: "Tests")
     ])
