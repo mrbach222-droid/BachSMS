@@ -4,7 +4,7 @@ Tra cứu ngày 17/10/2026. Chỉ dùng tài liệu chính thức để quyết 
 
 ## Thu nội dung
 
-Bản 0.1.1 dùng Broadcast Upload Extension với `RPBroadcastSampleHandler` và `RPSystemBroadcastPickerView`, phù hợp để làm nhánh thử tương thích iOS cũ. Extension nhận `.video` và `.audioApp`; bỏ `.audioMic`.
+Bản 0.2.0 dùng Broadcast Upload Extension với `RPBroadcastSampleHandler` và `RPSystemBroadcastPickerView`, phù hợp để làm nhánh thử tương thích iOS cũ. Extension nhận `.video` và `.audioApp`; bỏ `.audioMic`.
 
 Tài liệu Apple hiện đánh dấu ReplayKit deprecated trong SDK iOS 27 và khuyến nghị ScreenCaptureKit. Vì vậy chưa coi nhánh ReplayKit là giải pháp dài hạn cho iOS mới. Chưa triển khai adapter ScreenCaptureKit: cần build trên SDK mới, cấu hình `screen-capture` background mode và thử trên iOS 27 thật trước. Không thêm API mới chưa được kiểm chứng vào build cũ.
 
@@ -38,7 +38,9 @@ Gemini gọi REST `generateContent` qua HTTPS bằng header `x-goog-api-key`. C�
 
 ## Chia sẻ dữ liệu và chữ ký
 
-Hai target dùng đúng cùng App Group và Keychain Access Group. `AppIdentifierPrefix` được Xcode/profile mở rộng khi ký; không cố đoán từ tên repo hay tự gắn một team có sẵn. Không dùng UserDefaults để tránh cache cập nhật giữa tiến trình; JSON ghi atomic, app chỉ đọc snapshot còn extension là bên duy nhất ghi snapshot đang chạy.
+Bản 0.2.0 bỏ App Groups và Keychain Access Group chung. API key chỉ nằm trong Keychain mặc định của app chính, không gắn kSecAttrAccessGroup. Cài đặt JSON ghi atomic trong Application Support riêng. App và extension nối qua TCP 127.0.0.1, ghép nối một lần bằng QR hiện trên màn hình app; token chỉ nằm trong RAM và không chuyển API key sang extension. Không có SetupUI extension hoặc yêu cầu setupInfo, để giữ luồng thu toàn màn hình RPSystemBroadcastPickerView.
+
+Chữ ký vẫn cần hợp lệ cho app và Broadcast.appex. Các kiểm tra TCP/QR trên macOS không thay thế kiểm thử ReplayKit/PiP và Keychain trên iPhone thật.
 
 - https://developer.apple.com/documentation/xcode/configuring-app-groups
 - https://developer.apple.com/documentation/xcode/configuring-keychain-sharing
