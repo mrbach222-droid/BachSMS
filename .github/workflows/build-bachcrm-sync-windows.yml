@@ -22,11 +22,20 @@ jobs:
           New-Item -ItemType Directory -Force -Path $out | Out-Null
           $csc = "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
           if (-not (Test-Path $csc)) { throw "C# compiler not found" }
-          & $csc /nologo /target:winexe /optimize+ /platform:anycpu /utf8output /out:"BachCRMSyncWindows\dist\BachCRMSync.exe" /reference:System.dll /reference:System.Core.dll /reference:System.Drawing.dll /reference:System.Windows.Forms.dll /reference:System.Runtime.Serialization.dll /reference:System.IO.Compression.dll /reference:System.IO.Compression.FileSystem.dll /reference:System.Xml.dll "BachCRMSyncWindows\src\BachCRMSync.cs"
+          & $csc /nologo /target:winexe /main:BachCRMSync.Program /optimize+ /platform:anycpu /utf8output /out:"BachCRMSyncWindows\dist\BachCRMSync.exe" /reference:System.dll /reference:System.Core.dll /reference:System.Drawing.dll /reference:System.Windows.Forms.dll /reference:System.Runtime.Serialization.dll /reference:System.IO.Compression.dll /reference:System.IO.Compression.FileSystem.dll /reference:System.Xml.dll "BachCRMSyncWindows\src\BachCRMSync.cs"
           if ($LASTEXITCODE -ne 0) { throw "Compilation failed" }
           Copy-Item "BachCRMSyncWindows\src\BachCRMSync.exe.config" "$out\BachCRMSync.exe.config"
           Copy-Item "BachCRMSyncWindows\HUONG_DAN.txt" "$out\HUONG_DAN.txt"
           Get-Item "$out\BachCRMSync.exe" | Format-List Name,Length,LastWriteTime
+      - name: Run sync protocol tests
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          $csc = "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
+          & $csc /nologo /target:exe /main:BachCRMSync.SyncTests /optimize+ /platform:anycpu /utf8output /out:"BachCRMSyncWindows\SyncTests.exe" /reference:System.dll /reference:System.Core.dll /reference:System.Drawing.dll /reference:System.Windows.Forms.dll /reference:System.Runtime.Serialization.dll /reference:System.IO.Compression.dll /reference:System.IO.Compression.FileSystem.dll /reference:System.Xml.dll "BachCRMSyncWindows\src\BachCRMSync.cs" "BachCRMSyncWindows\tests\SyncTests.cs"
+          if ($LASTEXITCODE -ne 0) { throw "Test compilation failed" }
+          & "BachCRMSyncWindows\SyncTests.exe"
+          if ($LASTEXITCODE -ne 0) { throw "Sync protocol tests failed" }
       - name: Package Windows bundle
         shell: powershell
         run: |
