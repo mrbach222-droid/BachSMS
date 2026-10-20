@@ -137,7 +137,9 @@ private final class SMSViewModel: ObservableObject {
 
     var personalizedMessage: String {
         guard let currentRecipient else { return template.replacingOccurrences(of: "{ten}", with: "anh/chị") }
-        return template.replacingOccurrences(of: "{ten}", with: currentRecipient.name)
+        let source = currentRecipient.customMessage?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let resolved = (source?.isEmpty == false) ? source! : template
+        return resolved.replacingOccurrences(of: "{ten}", with: currentRecipient.name)
     }
 
     var suggestedTemplate: SMSSuggestedTemplate? {
@@ -194,6 +196,29 @@ private final class SMSViewModel: ObservableObject {
         recipients.append(contentsOf: unique)
     }
 
+    func mergeCRMJobs(_ jobs: [CRMSyncJob]) {
+        var knownJobIDs = Set(recipients.compactMap(\.crmJobID))
+        let imported = jobs.compactMap { job -> SMSRecipient? in
+            guard knownJobIDs.insert(job.id).inserted,
+                  let phone = RecipientParser.normalizePhone(job.phone) else {
+                return nil
+            }
+            return SMSRecipient(
+                name: job.customerName.isEmpty ? "anh/chị" : job.customerName,
+                phone: phone,
+                status: .pending,
+                crmJobID: job.id,
+                cif: job.cif,
+                contractNumber: job.contractNumber,
+                customMessage: job.message
+            )
+        }
+        recipients.append(contentsOf: imported)
+        alertText = imported.isEmpty
+            ? "Không có khách CRM mới để thêm."
+            : "Đã nhận \(imported.count) khách từ Bách CRM."
+    }
+
     func removeRecipient(_ recipient: SMSRecipient) {
         recipients.removeAll { $0.id == recipient.id }
         currentIndex = min(currentIndex, max(recipients.count - 1, 0))
@@ -223,11 +248,18 @@ private final class SMSViewModel: ObservableObject {
         guard recipients.indices.contains(currentIndex) else { return }
         switch result {
         case .sent:
+            let recipient = recipients[currentIndex]
             recipients[currentIndex].status = .sent
+            if let jobID = recipient.crmJobID {
+                CRMSyncController.shared.mark(jobID: jobID, status: .confirmedSent)
+            }
             advanceToNext()
         case .cancelled:
             alertText = "Tin nhắn chưa được gửi. Người nhận vẫn giữ trạng thái chờ."
         case .failed:
+            if let jobID = recipients[currentIndex].crmJobID {
+                CRMSyncController.shared.mark(jobID: jobID, status: .failed)
+            }
             alertText = "iPhone báo gửi tin thất bại. Hãy thử lại sau."
         @unknown default:
             alertText = "Không đọc được kết quả gửi tin."
@@ -236,7 +268,11 @@ private final class SMSViewModel: ObservableObject {
 
     func skipCurrent() {
         guard recipients.indices.contains(currentIndex) else { return }
+        let recipient = recipients[currentIndex]
         recipients[currentIndex].status = .skipped
+        if let jobID = recipient.crmJobID {
+            CRMSyncController.shared.mark(jobID: jobID, status: .skipped)
+        }
         advanceToNext()
     }
 
@@ -280,9 +316,11 @@ private final class SMSViewModel: ObservableObject {
 
 private struct SMSRootView: View {
     @StateObject private var model = SMSViewModel()
+    @StateObject private var crmSync = CRMSyncController.shared
     @State private var showFileImporter = false
     @State private var showComposer = false
     @State private var showTemplatePicker = false
+    @State private var showCRMSync = false
     @FocusState private var editorFocused: Bool
     @State private var fileImporterError: String?
 
@@ -329,6 +367,11 @@ private struct SMSRootView: View {
             SMSTemplatePicker { suggested in
                 model.applySuggestedTemplate(suggested)
                 showTemplatePicker = false
+            }
+        }
+        .sheet(isPresented: $showCRMSync) {
+            CRMSyncView(controller: crmSync) { jobs in
+                model.mergeCRMJobs(jobs)
             }
         }
         .toolbar {
@@ -419,6 +462,37 @@ private struct SMSRootView: View {
             }
             .buttonStyle(.plain)
             .disabled(model.isImporting)
+
+            Button {
+                editorFocused = false
+                showCRMSync = true
+            } label: {
+                HStack(spacing: 14) {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Color.blue.opacity(0.10))
+                        Image(systemName: "iphone.and.arrow.forward")
+                            .font(.system(size: 21, weight: .semibold))
+                            .foregroundStyle(.blue)
+                    }
+                    .frame(width: 52, height: 52)
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text("Nhận từ Bách CRM")
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundStyle(SMSPalette.ink)
+                        Text(crmSync.isPaired ? "Đã ghép · \(crmSync.jobs.count) khách chờ" : "Ghép bằng mã CRM trên máy tính")
+                            .font(.system(size: 12))
+                            .foregroundStyle(SMSPalette.muted)
+                    }
+                    Spacer()
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundStyle(.blue)
+                }
+                .padding(16)
+                .background(SMSPalette.card, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).stroke(SMSPalette.line, lineWidth: 1))
+            }
+            .buttonStyle(.plain)
 
             VStack(alignment: .leading, spacing: 10) {
                 HStack {
