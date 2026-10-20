@@ -98,7 +98,7 @@ namespace BachCRMSync
             string url,
             TRequest body,
             string token,
-            string deviceID)
+            string deviceID) where TResponse : class
         {
             var request = (HttpWebRequest)WebRequest.Create(url);
             request.Method = "POST";
