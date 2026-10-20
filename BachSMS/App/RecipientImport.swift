@@ -6,6 +6,10 @@ struct SMSRecipient: Identifiable, Codable, Hashable {
     var name: String
     var phone: String
     var status: RecipientStatus = .pending
+    var crmJobID: String? = nil
+    var cif: String? = nil
+    var contractNumber: String? = nil
+    var customMessage: String? = nil
 }
 
 enum RecipientStatus: String, Codable {
