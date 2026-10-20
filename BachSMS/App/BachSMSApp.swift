@@ -104,7 +104,7 @@ private final class SMSViewModel: ObservableObject {
     @Published var isImporting = false
 
     private let storageKey = "bach.sms.native.v1.0.1"
-    private let defaultTemplate = "Chào anh/chị {ten}, em là Bách. Em xin phép nhắc anh/chị về lịch thanh toán. Nếu anh/chị đã thanh toán, vui lòng bỏ qua tin nhắn này. Cảm ơn anh/chị."
+    private let defaultTemplate = "Chào anh/chị {ten}, xin phép nhắc anh/chị về lịch thanh toán. Nếu anh/chị đã thanh toán, vui lòng bỏ qua tin nhắn này. Cảm ơn anh/chị."
 
     private struct SavedState: Codable {
         var recipients: [SMSRecipient]
