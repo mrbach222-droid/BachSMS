@@ -20,8 +20,8 @@ using System.Xml;
 
 [assembly: System.Reflection.AssemblyTitle("BachCRMSync")]
 [assembly: System.Reflection.AssemblyProduct("Bách CRM Sync")]
-[assembly: System.Reflection.AssemblyVersion("1.0.1.0")]
-[assembly: System.Reflection.AssemblyFileVersion("1.0.1.0")]
+[assembly: System.Reflection.AssemblyVersion("1.1.0.0")]
+[assembly: System.Reflection.AssemblyFileVersion("1.1.0.0")]
 
 namespace BachCRMSync
 {
@@ -112,7 +112,7 @@ namespace BachCRMSync
             header.Controls.Add(title);
 
             var subtitle = new Label();
-            subtitle.Text = "Kết nối Bách CRM Windows với Bách SMS trên iPhone";
+            subtitle.Text = "Chọn khách trên CRM rồi chuyển thẳng sang Bách SMS Android/iPhone";
             subtitle.ForeColor = Color.FromArgb(90, 108, 104);
             subtitle.AutoSize = true;
             subtitle.Location = new Point(21, 52);
@@ -232,8 +232,11 @@ namespace BachCRMSync
             _messageTemplate = new TextBox();
             _messageTemplate.Multiline = true;
             _messageTemplate.Dock = DockStyle.Fill;
-            _messageTemplate.Text = "Kính gửi {ten}, đề nghị anh/chị kiểm tra và thực hiện nghĩa vụ thanh toán theo lịch đã trao đổi. Nếu đã hoàn tất, vui lòng bỏ qua tin nhắn này.";
-            _messageTemplate.ScrollBars = ScrollBars.Vertical;
+            _messageTemplate.ReadOnly = true;
+            _messageTemplate.BackColor = Color.White;
+            _messageTemplate.ForeColor = Color.FromArgb(20, 58, 52);
+            _messageTemplate.Font = new Font("Segoe UI", 10F, FontStyle.Bold);
+            _messageTemplate.Text = "1. Tích khách cần nhắn  →  2. Bấm CHUYỂN SANG BÁCH SMS\r\nNội dung tin nhắn sẽ được nhập trên điện thoại.";
             bottom.Controls.Add(_messageTemplate, 0, 0);
 
             var selectAll = NewButton("Chọn tất cả", Color.FromArgb(230, 238, 235), Color.FromArgb(20, 58, 52));
@@ -250,7 +253,7 @@ namespace BachCRMSync
             export.Click += delegate { ExportSelected(); };
             bottom.Controls.Add(export, 2, 0);
 
-            _sendButton = NewButton("GỬI SANG IPHONE", Color.FromArgb(18, 122, 94), Color.White);
+            _sendButton = NewButton("CHUYỂN SANG BÁCH SMS", Color.FromArgb(18, 122, 94), Color.White);
             _sendButton.Margin = new Padding(4, 0, 0, 0);
             _sendButton.Font = new Font("Segoe UI", 9.5F, FontStyle.Bold);
             _sendButton.Click += delegate { QueueSelected(); };
@@ -445,27 +448,15 @@ namespace BachCRMSync
                 return;
             }
 
-            var template = _messageTemplate.Text.Trim();
-            if (template.Length == 0)
-            {
-                MessageBox.Show(this, "Nội dung tin nhắn đang trống.", "Bách CRM Sync",
-                    MessageBoxButtons.OK, MessageBoxIcon.Information);
-                return;
-            }
-
             var added = 0;
             foreach (var row in selected)
             {
-                var message = template
-                    .Replace("{ten}", String.IsNullOrWhiteSpace(row.Name) ? "anh/chị" : row.Name)
-                    .Replace("{cif}", row.Cif ?? "")
-                    .Replace("{hopdong}", row.Contract ?? "");
-                if (_store.Queue(row, message)) added++;
+                if (_store.Queue(row, "")) added++;
                 row.Selected = false;
                 row.StatusText = "Chờ iPhone nhận";
             }
             _grid.Refresh();
-            AppendLog("Đã giao " + added + " khách sang hàng chờ iPhone; bỏ qua " +
+            AppendLog("Đã chuyển " + added + " khách sang hàng chờ Bách SMS; bỏ qua " +
                       (selected.Count - added) + " mục trùng đang chờ.");
             RefreshStatus();
         }
@@ -812,7 +803,7 @@ namespace BachCRMSync
                     case "skipped": return "Đã bỏ qua";
                     case "failed": return "Gửi lỗi";
                     default: return String.IsNullOrWhiteSpace(job.AssignedDeviceID)
-                        ? "Chờ iPhone nhận" : "iPhone đã nhận";
+                        ? "Chờ điện thoại nhận" : "Điện thoại đã nhận";
                 }
             }
         }
@@ -1109,7 +1100,7 @@ namespace BachCRMSync
             {
                 var jobs = _store.JobsFor(deviceID);
                 HttpResponse.WriteJson(stream, 200, new JobsResponse { Jobs = jobs, Cursor = null });
-                if (jobs.Count > 0) RaiseLog("iPhone đã nhận " + jobs.Count + " khách.");
+                if (jobs.Count > 0) RaiseLog("Bách SMS đã nhận " + jobs.Count + " khách.");
                 RaiseChanged();
                 return;
             }
@@ -1121,7 +1112,7 @@ namespace BachCRMSync
                     batch == null ? new List<StatusEvent>() : batch.Events,
                     deviceID);
                 HttpResponse.WriteJson(stream, 200, new StatusResponse { AcceptedIDs = accepted });
-                if (accepted.Count > 0) RaiseLog("Đã nhận " + accepted.Count + " trạng thái từ iPhone.");
+                if (accepted.Count > 0) RaiseLog("Đã nhận " + accepted.Count + " trạng thái từ Bách SMS.");
                 RaiseChanged();
                 return;
             }
