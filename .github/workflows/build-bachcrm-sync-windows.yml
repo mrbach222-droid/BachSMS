@@ -39,12 +39,12 @@ jobs:
       - name: Package Windows bundle
         shell: powershell
         run: |
-          Compress-Archive -Path "BachCRMSyncWindows\dist\*" -DestinationPath "BachCRMSyncWindows\BachCRMSync_v1.0.0_Windows.zip" -Force
-          if (-not (Test-Path "BachCRMSyncWindows\BachCRMSync_v1.0.0_Windows.zip")) { throw "ZIP missing" }
+          Compress-Archive -Path "BachCRMSyncWindows\dist\*" -DestinationPath "BachCRMSyncWindows\BachCRMSync_v1.0.1_Windows.zip" -Force
+          if (-not (Test-Path "BachCRMSyncWindows\BachCRMSync_v1.0.1_Windows.zip")) { throw "ZIP missing" }
       - name: Upload Windows bundle
         uses: actions/upload-artifact@v4
         with:
-          name: BachCRMSync-v1.0.0-Windows
-          path: BachCRMSyncWindows/BachCRMSync_v1.0.0_Windows.zip
+          name: BachCRMSync-v1.0.1-Windows
+          path: BachCRMSyncWindows/BachCRMSync_v1.0.1_Windows.zip
           if-no-files-found: error
           retention-days: 30
