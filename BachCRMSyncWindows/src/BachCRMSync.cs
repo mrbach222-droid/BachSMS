@@ -20,8 +20,8 @@ using System.Xml;
 
 [assembly: System.Reflection.AssemblyTitle("BachCRMSync")]
 [assembly: System.Reflection.AssemblyProduct("Bách CRM Sync")]
-[assembly: System.Reflection.AssemblyVersion("1.0.0.0")]
-[assembly: System.Reflection.AssemblyFileVersion("1.0.0.0")]
+[assembly: System.Reflection.AssemblyVersion("1.0.1.0")]
+[assembly: System.Reflection.AssemblyFileVersion("1.0.1.0")]
 
 namespace BachCRMSync
 {
@@ -158,12 +158,13 @@ namespace BachCRMSync
             var filePanel = new TableLayoutPanel();
             filePanel.Dock = DockStyle.Fill;
             filePanel.Padding = new Padding(0, 8, 0, 4);
-            filePanel.ColumnCount = 5;
+            filePanel.ColumnCount = 6;
             filePanel.RowCount = 1;
             filePanel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 76));
             filePanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
             filePanel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 92));
             filePanel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 92));
+            filePanel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 104));
             filePanel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 108));
             root.Controls.Add(filePanel, 0, 1);
 
@@ -187,12 +188,16 @@ namespace BachCRMSync
             load.Click += delegate { LoadExcel(); };
             filePanel.Controls.Add(load, 3, 0);
 
+            var sample = NewButton("Tạo file mẫu", Color.FromArgb(255, 244, 214), Color.FromArgb(139, 91, 0));
+            sample.Click += delegate { CreateTemplateFile(); };
+            filePanel.Controls.Add(sample, 4, 0);
+
             _startButton = NewButton("Dừng kết nối", Color.FromArgb(232, 246, 240), Color.FromArgb(18, 122, 94));
             _startButton.Click += delegate
             {
                 if (_server.IsRunning) StopServer(); else StartServer();
             };
-            filePanel.Controls.Add(_startButton, 4, 0);
+            filePanel.Controls.Add(_startButton, 5, 0);
 
             _grid = new DataGridView();
             _grid.Dock = DockStyle.Fill;
@@ -214,10 +219,11 @@ namespace BachCRMSync
             var bottom = new TableLayoutPanel();
             bottom.Dock = DockStyle.Fill;
             bottom.Padding = new Padding(0, 8, 0, 0);
-            bottom.ColumnCount = 3;
+            bottom.ColumnCount = 4;
             bottom.RowCount = 2;
-            bottom.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 61));
-            bottom.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 23));
+            bottom.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
+            bottom.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 17));
+            bottom.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 17));
             bottom.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 16));
             bottom.RowStyles.Add(new RowStyle(SizeType.Absolute, 70));
             bottom.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
@@ -239,11 +245,16 @@ namespace BachCRMSync
             };
             bottom.Controls.Add(selectAll, 1, 0);
 
+            var export = NewButton("Xuất file chuẩn", Color.FromArgb(224, 239, 250), Color.FromArgb(20, 105, 160));
+            export.Margin = new Padding(4, 0, 4, 0);
+            export.Click += delegate { ExportSelected(); };
+            bottom.Controls.Add(export, 2, 0);
+
             _sendButton = NewButton("GỬI SANG IPHONE", Color.FromArgb(18, 122, 94), Color.White);
             _sendButton.Margin = new Padding(4, 0, 0, 0);
             _sendButton.Font = new Font("Segoe UI", 9.5F, FontStyle.Bold);
             _sendButton.Click += delegate { QueueSelected(); };
-            bottom.Controls.Add(_sendButton, 2, 0);
+            bottom.Controls.Add(_sendButton, 3, 0);
 
             _log = new TextBox();
             _log.Dock = DockStyle.Fill;
@@ -251,7 +262,7 @@ namespace BachCRMSync
             _log.BorderStyle = BorderStyle.None;
             _log.BackColor = Color.FromArgb(244, 247, 246);
             _log.ForeColor = Color.FromArgb(90, 108, 104);
-            bottom.SetColumnSpan(_log, 3);
+            bottom.SetColumnSpan(_log, 4);
             bottom.Controls.Add(_log, 0, 1);
         }
 
@@ -370,6 +381,56 @@ namespace BachCRMSync
             finally
             {
                 Cursor = Cursors.Default;
+            }
+        }
+
+
+        private void CreateTemplateFile()
+        {
+            using (var dialog = new SaveFileDialog())
+            {
+                dialog.Filter = "Excel Workbook (*.xlsx)|*.xlsx";
+                dialog.FileName = "Mau_CRM_Sync.xlsx";
+                dialog.Title = "Lưu file mẫu CRM Sync";
+                if (dialog.ShowDialog(this) != DialogResult.OK) return;
+                var sample = new[]
+                {
+                    new CustomerRow
+                    {
+                        Cif = "KH000001",
+                        Contract = "HD000001",
+                        Name = "Nguyễn Văn A",
+                        Phone = "0901234567"
+                    }
+                };
+                XlsxTemplateWriter.Create(dialog.FileName, sample);
+                AppendLog("Đã tạo file mẫu: " + dialog.FileName);
+                MessageBox.Show(this, "Đã tạo file mẫu CRM Sync.", "Bách CRM Sync",
+                    MessageBoxButtons.OK, MessageBoxIcon.Information);
+            }
+        }
+
+        private void ExportSelected()
+        {
+            _grid.EndEdit();
+            var selected = _rows.Where(delegate(CustomerRow row) { return row.Selected; }).ToList();
+            if (selected.Count == 0)
+            {
+                MessageBox.Show(this, "Hãy tích chọn ít nhất một khách để xuất file.", "Bách CRM Sync",
+                    MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+
+            using (var dialog = new SaveFileDialog())
+            {
+                dialog.Filter = "Excel Workbook (*.xlsx)|*.xlsx";
+                dialog.FileName = "Danh_sach_CRM_Sync_" + DateTime.Now.ToString("yyyyMMdd_HHmm") + ".xlsx";
+                dialog.Title = "Xuất danh sách khách đã chọn";
+                if (dialog.ShowDialog(this) != DialogResult.OK) return;
+                XlsxTemplateWriter.Create(dialog.FileName, selected);
+                AppendLog("Đã xuất " + selected.Count + " khách ra file chuẩn: " + dialog.FileName);
+                MessageBox.Show(this, "Đã xuất " + selected.Count + " khách ra file chuẩn CRM Sync.",
+                    "Bách CRM Sync", MessageBoxButtons.OK, MessageBoxIcon.Information);
             }
         }
 
@@ -1246,8 +1307,110 @@ namespace BachCRMSync
         }
     }
 
+
+    internal static class XlsxTemplateWriter
+    {
+        public static void Create(string path, IEnumerable<CustomerRow> customers)
+        {
+            using (var stream = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None))
+            using (var archive = new ZipArchive(stream, ZipArchiveMode.Create, false))
+            {
+                WriteEntry(archive, "[Content_Types].xml",
+                    "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>" +
+                    "<Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\">" +
+                    "<Default Extension=\"rels\" ContentType=\"application/vnd.openxmlformats-package.relationships+xml\"/>" +
+                    "<Default Extension=\"xml\" ContentType=\"application/xml\"/>" +
+                    "<Override PartName=\"/xl/workbook.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml\"/>" +
+                    "<Override PartName=\"/xl/worksheets/sheet1.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml\"/>" +
+                    "<Override PartName=\"/xl/styles.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml\"/>" +
+                    "</Types>");
+                WriteEntry(archive, "_rels/.rels",
+                    "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>" +
+                    "<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">" +
+                    "<Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument\" Target=\"xl/workbook.xml\"/>" +
+                    "</Relationships>");
+                WriteEntry(archive, "xl/workbook.xml",
+                    "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>" +
+                    "<workbook xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\" " +
+                    "xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\">" +
+                    "<sheets><sheet name=\"Khach_hang\" sheetId=\"1\" r:id=\"rId1\"/></sheets></workbook>");
+                WriteEntry(archive, "xl/_rels/workbook.xml.rels",
+                    "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>" +
+                    "<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">" +
+                    "<Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet\" Target=\"worksheets/sheet1.xml\"/>" +
+                    "<Relationship Id=\"rId2\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles\" Target=\"styles.xml\"/>" +
+                    "</Relationships>");
+                WriteEntry(archive, "xl/styles.xml",
+                    "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>" +
+                    "<styleSheet xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\">" +
+                    "<fonts count=\"2\"><font><sz val=\"10\"/><name val=\"Arial\"/></font>" +
+                    "<font><b/><color rgb=\"FFFFFFFF\"/><sz val=\"10\"/><name val=\"Arial\"/></font></fonts>" +
+                    "<fills count=\"3\"><fill><patternFill patternType=\"none\"/></fill>" +
+                    "<fill><patternFill patternType=\"gray125\"/></fill>" +
+                    "<fill><patternFill patternType=\"solid\"><fgColor rgb=\"FF126F5A\"/><bgColor indexed=\"64\"/></patternFill></fill></fills>" +
+                    "<borders count=\"1\"><border><left/><right/><top/><bottom/><diagonal/></border></borders>" +
+                    "<cellStyleXfs count=\"1\"><xf numFmtId=\"0\" fontId=\"0\" fillId=\"0\" borderId=\"0\"/></cellStyleXfs>" +
+                    "<cellXfs count=\"3\"><xf numFmtId=\"0\" fontId=\"0\" fillId=\"0\" borderId=\"0\" xfId=\"0\"/>" +
+                    "<xf numFmtId=\"0\" fontId=\"1\" fillId=\"2\" borderId=\"0\" xfId=\"0\" applyFont=\"1\" applyFill=\"1\" applyAlignment=\"1\"><alignment horizontal=\"center\" vertical=\"center\"/></xf>" +
+                    "<xf numFmtId=\"49\" fontId=\"0\" fillId=\"0\" borderId=\"0\" xfId=\"0\" applyNumberFormat=\"1\"/></cellXfs>" +
+                    "<cellStyles count=\"1\"><cellStyle name=\"Normal\" xfId=\"0\" builtinId=\"0\"/></cellStyles></styleSheet>");
+
+                var builder = new StringBuilder();
+                builder.Append("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>");
+                builder.Append("<worksheet xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\">");
+                builder.Append("<sheetViews><sheetView workbookViewId=\"0\"><pane ySplit=\"1\" topLeftCell=\"A2\" activePane=\"bottomLeft\" state=\"frozen\"/></sheetView></sheetViews>");
+                builder.Append("<cols><col min=\"1\" max=\"1\" width=\"14\" customWidth=\"1\"/><col min=\"2\" max=\"2\" width=\"16\" customWidth=\"1\"/>");
+                builder.Append("<col min=\"3\" max=\"3\" width=\"25\" customWidth=\"1\"/><col min=\"4\" max=\"4\" width=\"16\" customWidth=\"1\"/>");
+                builder.Append("<col min=\"5\" max=\"5\" width=\"34\" customWidth=\"1\"/></cols><sheetData>");
+                builder.Append("<row r=\"1\" ht=\"24\" customHeight=\"1\">");
+                builder.Append(InlineCell("A1", "CIF", 1));
+                builder.Append(InlineCell("B1", "Số HĐ", 1));
+                builder.Append(InlineCell("C1", "Tên KH", 1));
+                builder.Append(InlineCell("D1", "SĐT", 1));
+                builder.Append(InlineCell("E1", "Nội dung SMS (tùy chọn)", 1));
+                builder.Append("</row>");
+
+                var rowNumber = 2;
+                foreach (var customer in customers ?? Enumerable.Empty<CustomerRow>())
+                {
+                    builder.Append("<row r=\"" + rowNumber + "\">");
+                    builder.Append(InlineCell("A" + rowNumber, customer.Cif, 2));
+                    builder.Append(InlineCell("B" + rowNumber, customer.Contract, 2));
+                    builder.Append(InlineCell("C" + rowNumber, customer.Name, 2));
+                    builder.Append(InlineCell("D" + rowNumber, customer.Phone, 2));
+                    builder.Append(InlineCell("E" + rowNumber, "", 2));
+                    builder.Append("</row>");
+                    rowNumber++;
+                }
+                builder.Append("</sheetData><autoFilter ref=\"A1:E" + Math.Max(1, rowNumber - 1) + "\"/>");
+                builder.Append("</worksheet>");
+                WriteEntry(archive, "xl/worksheets/sheet1.xml", builder.ToString());
+            }
+        }
+
+        private static string InlineCell(string reference, string value, int style)
+        {
+            return "<c r=\"" + reference + "\" s=\"" + style + "\" t=\"inlineStr\"><is><t xml:space=\"preserve\">" +
+                Escape(value) + "</t></is></c>";
+        }
+
+        private static string Escape(string value)
+        {
+            return (value ?? "").Replace("&", "&amp;").Replace("<", "&lt;")
+                .Replace(">", "&gt;").Replace("\"", "&quot;").Replace("'", "&apos;");
+        }
+
+        private static void WriteEntry(ZipArchive archive, string name, string content)
+        {
+            var entry = archive.CreateEntry(name, CompressionLevel.Optimal);
+            using (var writer = new StreamWriter(entry.Open(), new UTF8Encoding(false)))
+                writer.Write(content);
+        }
+    }
+
     internal static class XlsxReader
     {
+
         public static List<CustomerRow> ReadCustomers(string path)
         {
             using (var stream = new FileStream(path, FileMode.Open, FileAccess.Read,
@@ -1255,89 +1418,108 @@ namespace BachCRMSync
             using (var archive = new ZipArchive(stream, ZipArchiveMode.Read, false))
             {
                 var shared = ReadSharedStrings(archive);
-                var sheetPath = ResolveDataSheet(archive);
-                var entry = archive.GetEntry(sheetPath);
-                if (entry == null) throw new InvalidDataException("Không tìm thấy Sheet1/DanhSach trong Excel.");
-
-                var rows = ReadRows(entry, shared);
-                var headerIndex = FindHeader(rows);
-                if (headerIndex < 0)
-                    throw new InvalidDataException("Không nhận diện được dòng tiêu đề CIF, tên khách và số điện thoại.");
-
-                var header = rows[headerIndex];
-                var cifColumn = FindColumn(header, new[] { "cif", "ma kh", "ma khach hang", "customer number", "customer no" });
-                var contractColumn = FindColumn(header, new[] { "so hd", "so hop dong", "hop dong", "contract", "contract no" });
-                var nameColumn = FindColumn(header, new[] { "ten kh", "ten khach hang", "ho ten", "customer name", "name" });
-                var phoneColumn = FindColumn(header, new[] { "dtd d ca nhan", "dtdd ca nhan", "sdt kh", "so dien thoai", "dien thoai", "mobile", "phone" });
-
-                if (cifColumn < 0 || nameColumn < 0 || phoneColumn < 0)
-                    throw new InvalidDataException("Excel thiếu một trong các cột CIF, Tên KH hoặc SĐT.");
-
-                var result = new List<CustomerRow>();
-                var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                for (var i = headerIndex + 1; i < rows.Count; i++)
+                foreach (var sheetPath in ResolveDataSheets(archive))
                 {
-                    var row = rows[i];
-                    var cif = Cell(row, cifColumn);
-                    var name = Cell(row, nameColumn);
-                    var phone = Cell(row, phoneColumn);
-                    var contract = contractColumn >= 0 ? Cell(row, contractColumn) : "";
-                    if (String.IsNullOrWhiteSpace(phone) || String.IsNullOrWhiteSpace(cif)) continue;
-                    var key = cif.Trim() + "|" + contract.Trim() + "|" + Digits(phone);
-                    if (!seen.Add(key)) continue;
-                    result.Add(new CustomerRow
+                    var entry = archive.GetEntry(sheetPath);
+                    if (entry == null) continue;
+
+                    var rows = ReadRows(entry, shared);
+                    var headerIndex = FindHeader(rows);
+                    if (headerIndex < 0) continue;
+
+                    var header = rows[headerIndex];
+                    var cifColumn = FindColumn(header, new[]
                     {
-                        Selected = false,
-                        Cif = cif.Trim(),
-                        Contract = contract.Trim(),
-                        Name = name.Trim(),
-                        Phone = phone.Trim(),
-                        SourceRow = i + 1,
-                        StatusText = "Chưa giao"
+                        "cif", "ma kh cif", "ma kh", "ma khach hang", "customer number", "customer no"
                     });
+                    var contractColumn = FindColumn(header, new[]
+                    {
+                        "so hd", "so hop dong", "hop dong", "contract", "contract no"
+                    });
+                    var nameColumn = FindColumn(header, new[]
+                    {
+                        "ten kh", "ten khach hang", "ho ten", "customer name", "name"
+                    });
+                    var phoneColumn = FindColumn(header, new[]
+                    {
+                        "sdt", "sdt kh", "sdt ca nhan", "dtd d ca nhan", "dtdd ca nhan",
+                        "so dien thoai", "dien thoai", "mobile", "phone"
+                    });
+
+                    if (cifColumn < 0 || nameColumn < 0 || phoneColumn < 0) continue;
+
+                    var result = new List<CustomerRow>();
+                    var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                    for (var i = headerIndex + 1; i < rows.Count; i++)
+                    {
+                        var row = rows[i];
+                        var cif = Cell(row, cifColumn);
+                        var name = Cell(row, nameColumn);
+                        var phone = Cell(row, phoneColumn);
+                        var contract = contractColumn >= 0 ? Cell(row, contractColumn) : "";
+                        if (String.IsNullOrWhiteSpace(phone) || String.IsNullOrWhiteSpace(cif)) continue;
+                        var key = cif.Trim() + "|" + contract.Trim() + "|" + Digits(phone);
+                        if (!seen.Add(key)) continue;
+                        result.Add(new CustomerRow
+                        {
+                            Selected = false,
+                            Cif = cif.Trim(),
+                            Contract = contract.Trim(),
+                            Name = name.Trim(),
+                            Phone = phone.Trim(),
+                            SourceRow = i + 1,
+                            StatusText = "Chưa giao"
+                        });
+                    }
+                    return result;
                 }
-                return result;
+
+                throw new InvalidDataException(
+                    "Không tìm thấy bảng khách hàng có đủ CIF, Tên KH và SĐT trong các sheet. " +
+                    "Bấm “Tạo file mẫu” để lấy đúng định dạng, hoặc chọn trực tiếp file Excel đang dùng trong Bách CRM.");
             }
         }
 
-        private static string ResolveDataSheet(ZipArchive archive)
+        private static List<string> ResolveDataSheets(ZipArchive archive)
         {
+            var output = new List<KeyValuePair<string, string>>();
             var workbookEntry = archive.GetEntry("xl/workbook.xml");
             var relsEntry = archive.GetEntry("xl/_rels/workbook.xml.rels");
             if (workbookEntry == null || relsEntry == null)
-                return "xl/worksheets/sheet1.xml";
+                return new List<string> { "xl/worksheets/sheet1.xml" };
 
             var workbook = LoadXml(workbookEntry);
             var relationships = LoadXml(relsEntry);
             var relMap = new Dictionary<string, string>();
             foreach (XmlElement rel in relationships.GetElementsByTagName("Relationship"))
-            {
                 relMap[rel.GetAttribute("Id")] = rel.GetAttribute("Target");
-            }
 
-            XmlNode fallback = null;
             foreach (XmlNode sheet in workbook.GetElementsByTagName("sheet"))
             {
-                if (fallback == null) fallback = sheet;
                 var name = sheet.Attributes["name"] == null ? "" : sheet.Attributes["name"].Value;
                 if (Normalize(name) == "code") continue;
-                if (Normalize(name) == "sheet1" || Normalize(name) == "danhsach" || fallback == sheet)
-                {
-                    var relationID = "";
-                    foreach (XmlAttribute attribute in sheet.Attributes)
-                    {
-                        if (attribute.LocalName == "id") relationID = attribute.Value;
-                    }
-                    string target;
-                    if (relMap.TryGetValue(relationID, out target))
-                    {
-                        target = target.Replace("\\", "/");
-                        while (target.StartsWith("../")) target = target.Substring(3);
-                        return target.StartsWith("xl/") ? target : "xl/" + target.TrimStart('/');
-                    }
-                }
+                var relationID = "";
+                foreach (XmlAttribute attribute in sheet.Attributes)
+                    if (attribute.LocalName == "id") relationID = attribute.Value;
+
+                string target;
+                if (!relMap.TryGetValue(relationID, out target)) continue;
+                target = target.Replace("\\", "/");
+                while (target.StartsWith("../")) target = target.Substring(3);
+                if (target.StartsWith("/")) target = target.TrimStart('/');
+                else if (!target.StartsWith("xl/")) target = "xl/" + target;
+                output.Add(new KeyValuePair<string, string>(name, target));
             }
-            return "xl/worksheets/sheet1.xml";
+
+            return output
+                .OrderBy(delegate(KeyValuePair<string, string> item)
+                {
+                    var name = Normalize(item.Key);
+                    return name == "danhsach" || name == "khach hang" || name == "sheet1" ? 0 : 1;
+                })
+                .Select(delegate(KeyValuePair<string, string> item) { return item.Value; })
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
         }
 
         private static List<string> ReadSharedStrings(ZipArchive archive)
