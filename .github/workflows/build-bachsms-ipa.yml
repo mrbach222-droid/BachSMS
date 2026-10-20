@@ -1,8 +1,8 @@
-name: Build Bách SMS iOS 1.0.3 (unsigned)
+name: Build Bách SMS iOS 1.1.0 CRM Sync (unsigned)
 
 on:
   push:
-    branches: [v1.0.1-native-fullscreen]
+    branches: [bachsms-crm-sync-v1.1.0]
   workflow_dispatch:
 
 jobs:
@@ -39,21 +39,20 @@ jobs:
           test -d "$APP"
           mkdir -p Payload
           cp -R "$APP" Payload/BachSMS.app
-          /usr/bin/zip -qry BachSMS_v1.0.3_message_templates_unsigned.ipa Payload
+          /usr/bin/zip -qry BachSMS_v1.1.0_CRM_Sync_unsigned.ipa Payload
       - name: Upload IPA
         uses: actions/upload-artifact@v4
         with:
-          name: BachSMS-v1.0.3-message-templates-unsigned-ipa
-          path: BachSMS/BachSMS_v1.0.3_message_templates_unsigned.ipa
+          name: BachSMS-v1.1.0-CRM-Sync-unsigned-ipa
+          path: BachSMS/BachSMS_v1.1.0_CRM_Sync_unsigned.ipa
           if-no-files-found: error
           retention-days: 30
       - name: Upload test and build logs if failed
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: BachSMS-v1.0.3-build-log
+          name: BachSMS-v1.1.0-CRM-Sync-build-log
           path: |
             import-tests.log
             BachSMS/build.log
           if-no-files-found: ignore
-
