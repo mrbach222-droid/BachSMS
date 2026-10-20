@@ -1,26 +1,27 @@
-BÁCH CRM SYNC v1.0.1 — HƯỚNG DẪN NHANH
+BÁCH CRM SYNC v1.1.0 — HƯỚNG DẪN NHANH
 
-CÁCH DÙNG NHANH NHẤT
-1. Đặt BachCRMSync.exe cùng thư mục với BachCRMExcel.exe và file excel_path.txt.
-2. Mở BachCRMExcel.exe như bình thường, sau đó mở BachCRMSync.exe.
-3. Nếu Windows Firewall hỏi, chọn Allow access/Cho phép trên mạng Private.
-4. Bấm Chọn file và chọn file Excel đang dùng trong Bách CRM. Bản v1.0.1 tự tìm đúng sheet khách hàng.
-5. Tích khách cần nhắn.
-6. Bấm GỬI SANG IPHONE để chuyển thẳng, hoặc bấm Xuất file chuẩn để lưu danh sách đã chọn.
-7. Trên Bách SMS: chọn Nhận từ Bách CRM.
-8. Nhập đúng Địa chỉ PC và MÃ CRM đang hiển thị trên công cụ Windows, rồi bấm Ghép với CRM.
-9. Chọn khách và đưa vào danh sách gửi. iPhone vẫn yêu cầu bấm Gửi từng SMS.
-10. Trạng thái Đã xác nhận gửi/Bỏ qua/Gửi lỗi sẽ tự trở về công cụ Windows.
+LUỒNG TỐI ƯU
+1. Mở BachCRMExcel.exe như bình thường, sau đó mở BachCRMSync.exe.
+2. Công cụ tự nạp file Excel CRM; nếu chưa đúng, bấm Chọn file.
+3. Tích những khách cần nhắn.
+4. Bấm CHUYỂN SANG BÁCH SMS. Không cần nhập nội dung trên PC.
+5. Trên Bách SMS Android hoặc iPhone, ghép CRM và tải khách.
+6. Nhập nội dung trên điện thoại; có thể dùng {ten}, {cif}, {hopdong}.
+7. Android: bấm BẮT ĐẦU GỬI TỰ ĐỘNG, ứng dụng nghỉ ngẫu nhiên 5–10 giây.
+8. iPhone: kiểm tra từng SMS và bấm Gửi thủ công theo giới hạn của iOS.
+9. Trạng thái gửi sẽ tự trả về Bách CRM Sync.
 
-FILE MẪU
-- Bấm Tạo file mẫu ngay trên thanh chọn file.
-- Các cột chuẩn: CIF, Số HĐ, Tên KH, SĐT, Nội dung SMS (tùy chọn).
-- CIF, Tên KH và SĐT là bắt buộc; Số HĐ có thể để trống.
-- Có thể nhập dữ liệu vào file mẫu rồi chọn lại file đó trong Bách CRM Sync.
+FILE EXCEL
+- Bản v1.1.0 tự tìm sheet có CIF, Tên KH và SĐT.
+- Bấm Tạo file mẫu nếu cần đúng định dạng.
+- Xuất file chuẩn chỉ là phương án dự phòng, không bắt buộc trong luồng gửi thẳng.
 
-LƯU Ý
-- Bản v1.0.1 dùng trong cùng mạng LAN/Wi-Fi. Máy tính dùng dây LAN và iPhone dùng Wi-Fi vẫn được nếu cùng router.
-- Công cụ chỉ đọc file Excel, không sửa dữ liệu, không sửa AD–AP hoặc AK/AL.
+KẾT NỐI
+- Cùng Wi-Fi/LAN: dùng địa chỉ 192.168.x.x.
+- Khác mạng hoặc điện thoại dùng 3G/4G/5G: bật Tailscale trên PC và điện thoại, dùng địa chỉ 100.x.x.x.
+- Không mở cổng CRM trực tiếp ra Internet công khai.
+
+AN TOÀN DỮ LIỆU
+- Công cụ chỉ đọc file Excel nguồn, không sửa AD–AP hoặc AK/AL.
 - Không thay đổi BachCRMExcel.exe và BachCRMExcelBridge.exe.
-- Không đóng BachCRMSync.exe trong lúc iPhone đang lấy hoặc trả trạng thái.
-- Dữ liệu ghép nối và hàng chờ nằm trong thư mục BachCRMSyncData cạnh EXE.
+- Dữ liệu ghép nối và hàng chờ nằm trong BachCRMSyncData cạnh EXE.
