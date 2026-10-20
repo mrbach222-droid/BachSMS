@@ -1,0 +1,18 @@
+BÁCH CRM SYNC v1.0.0 — HƯỚNG DẪN NHANH
+
+1. Đặt BachCRMSync.exe cùng thư mục với BachCRMExcel.exe và file excel_path.txt.
+2. Mở BachCRMExcel.exe như bình thường, sau đó mở BachCRMSync.exe.
+3. Nếu Windows Firewall hỏi, chọn Allow access/Cho phép trên mạng Private.
+4. Công cụ tự nạp file Excel trong excel_path.txt. Nếu chưa đúng, bấm Chọn file.
+5. Tích khách cần nhắn, sửa nội dung nếu cần, bấm GỬI SANG IPHONE.
+6. Trên Bách SMS: Chọn Nhận từ Bách CRM.
+7. Nhập đúng Địa chỉ PC và MÃ CRM đang hiển thị trên công cụ Windows, rồi bấm Ghép với CRM.
+8. Chọn khách và đưa vào danh sách gửi. iPhone vẫn yêu cầu bấm Gửi từng SMS.
+9. Trạng thái Đã xác nhận gửi/Bỏ qua/Gửi lỗi sẽ tự trở về công cụ Windows.
+
+LƯU Ý
+- Bản v1.0.0 dùng trong cùng mạng LAN/Wi-Fi. Máy tính dùng dây LAN và iPhone dùng Wi-Fi vẫn được nếu cùng router.
+- Công cụ chỉ đọc file Excel, không sửa dữ liệu, không sửa AD–AP hoặc AK/AL.
+- Không thay đổi BachCRMExcel.exe và BachCRMExcelBridge.exe.
+- Không đóng BachCRMSync.exe trong lúc iPhone đang lấy hoặc trả trạng thái.
+- Dữ liệu ghép nối và hàng chờ nằm trong thư mục BachCRMSyncData cạnh EXE.
