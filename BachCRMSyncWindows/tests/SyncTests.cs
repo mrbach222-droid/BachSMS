@@ -25,6 +25,13 @@ namespace BachCRMSync
                     Phone = "0912345678",
                     SourceRow = 6
                 };
+                var templatePath = Path.Combine(root, "Mau_CRM_Sync.xlsx");
+                XlsxTemplateWriter.Create(templatePath, new[] { row });
+                var imported = XlsxReader.ReadCustomers(templatePath);
+                Assert(imported.Count == 1, "Read generated CRM Sync workbook");
+                Assert(imported[0].Cif == "CIF001", "Generated workbook preserves CIF");
+                Assert(imported[0].Phone == "0912345678", "Generated workbook preserves phone");
+
                 Assert(store.Queue(row, "Xin chao NGUYEN VAN A"), "Queue first job");
                 Assert(!store.Queue(row, "Duplicate"), "Reject duplicate pending job");
 
