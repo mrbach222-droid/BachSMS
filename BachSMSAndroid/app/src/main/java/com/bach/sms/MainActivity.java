@@ -53,6 +53,7 @@ public final class MainActivity extends Activity {
     private ArrayAdapter<String> simAdapter;
     private String deviceId;
     private String token;
+    private volatile boolean networkBusy;
 
     private final BroadcastReceiver progressReceiver = new BroadcastReceiver() {
         @Override public void onReceive(Context context, Intent intent) {
@@ -215,7 +216,7 @@ public final class MainActivity extends Activity {
                 JSONObject link=CloudInbox.link(code);String base=link.getString("url"), reader=link.getString("token"), channel=link.getString("channel");
                 CrmClient.jobs(base, reader, deviceId);
                 if(!preferences.edit().putString("server_url",base).putString("crm_code","CF-"+channel).putString("token",reader).putBoolean("cloud",true).commit())throw new Exception("Không lưu được kết nối trên điện thoại.");
-                runOnUiThread(() -> {token=reader;serverInput.setText(base);serverInput.setEnabled(false);codeInput.setText("CF-"+channel);fetchJobs();});
+                runOnUiThread(() -> {token=reader;serverInput.setText(base);serverInput.setEnabled(false);codeInput.setText("CF-"+channel);jobs.clear();try{showJsonJobs(CloudInbox.read(this,cloudScope()));}catch(Exception ignored){showJobs(new ArrayList<>());}fetchJobs();});
             });return;
         }
         if (server.isEmpty() || code.isEmpty()) {
@@ -246,6 +247,7 @@ public final class MainActivity extends Activity {
         }
         statusView.setText("Đang tải khách...");
         runNetwork(() -> {
+            CrmClient.flushStatuses(this,server,token,deviceId);
             JSONArray array = CrmClient.jobs(server, token, deviceId);
             if(preferences.getBoolean("cloud",false)){
                 String scope=cloudScope();int pages=0;
@@ -386,12 +388,14 @@ public final class MainActivity extends Activity {
     }
 
     private void runNetwork(ThrowingAction action) {
+        if(networkBusy){toast("Đang kết nối, anh đợi một chút.");return;}
+        networkBusy=true;
         new Thread(() -> {
             try {
                 action.run();
             } catch (Exception error) {
                 runOnUiThread(() -> showError(error));
-            }
+            } finally {networkBusy=false;}
         }).start();
     }
 

@@ -40,7 +40,8 @@ final class CrmClient {
         request(baseUrl,"POST","/api/v1/received",new JSONObject().put("job_ids",ids),token,null);
     }
 
-    static void postStatus(
+    static synchronized void postStatus(
+        android.content.Context context,
         String baseUrl,
         String token,
         String deviceId,
@@ -48,18 +49,35 @@ final class CrmClient {
         String status
     ) throws Exception {
         JSONObject event = new JSONObject();
-        event.put("id", "android-" + job.id + "-" + System.currentTimeMillis());
+        event.put("id", java.util.UUID.randomUUID().toString());
         event.put("job_id", job.id);
         event.put("device_id", deviceId);
         event.put("status", status);
         event.put("occurred_at", isoNow());
         event.put("message_fingerprint", "");
 
-        JSONArray events = new JSONArray();
-        events.put(event);
-        JSONObject body = new JSONObject();
-        body.put("events", events);
-        request(baseUrl, "POST", "/api/v1/statuses", body, token, deviceId);
+        android.content.SharedPreferences prefs=context.getSharedPreferences("bach_sms_status_outbox",0);
+        String key=statusScope(baseUrl,token);
+        JSONArray events=new JSONArray(prefs.getString(key,"[]"));events.put(event);
+        if(!prefs.edit().putString(key,events.toString()).commit())throw new Exception("Chưa lưu được trạng thái SMS trên điện thoại.");
+        flushStatuses(context,baseUrl,token,deviceId);
+    }
+
+    private static String statusScope(String base,String token) throws Exception {
+        byte[] hash=java.security.MessageDigest.getInstance("SHA-256").digest((base+"|"+token).getBytes(StandardCharsets.UTF_8));
+        StringBuilder out=new StringBuilder();for(byte b:hash)out.append(String.format("%02x",b&255));return out.toString();
+    }
+    static synchronized void flushStatuses(android.content.Context context,String base,String token,String deviceId) throws Exception {
+        android.content.SharedPreferences prefs=context.getSharedPreferences("bach_sms_status_outbox",0);String key=statusScope(base,token);
+        JSONArray events=new JSONArray(prefs.getString(key,"[]"));
+        while(events.length()>0){JSONArray sending=new JSONArray();for(int i=0;i<Math.min(20,events.length());i++)sending.put(events.getJSONObject(i));
+            JSONObject result=new JSONObject(request(base,"POST","/api/v1/statuses",new JSONObject().put("events",sending),token,deviceId));
+            JSONArray accepted=result.optJSONArray("accepted_ids");if(accepted==null||accepted.length()==0)throw new Exception("CRM chưa xác nhận trạng thái SMS.");
+            java.util.HashSet<String> ids=new java.util.HashSet<>();for(int i=0;i<accepted.length();i++)ids.add(accepted.getString(i));JSONArray remaining=new JSONArray();
+            for(int i=0;i<events.length();i++)if(!ids.contains(events.getJSONObject(i).getString("id")))remaining.put(events.getJSONObject(i));
+            if(remaining.length()==events.length())throw new Exception("CRM chưa xác nhận đúng trạng thái SMS.");
+            if(!prefs.edit().putString(key,remaining.toString()).commit())throw new Exception("Chưa lưu được xác nhận trạng thái SMS.");events=remaining;
+        }
     }
 
     private static String request(

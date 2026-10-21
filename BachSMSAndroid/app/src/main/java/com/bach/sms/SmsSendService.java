@@ -211,7 +211,7 @@ public final class SmsSendService extends Service {
 
         new Thread(() -> {
             try {
-                CrmClient.postStatus(server, token, deviceId, job, status);
+                CrmClient.postStatus(this, server, token, deviceId, job, status);
             } catch (Exception ignored) {}
         }).start();
 
