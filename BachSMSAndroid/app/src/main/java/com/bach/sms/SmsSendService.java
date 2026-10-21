@@ -203,6 +203,11 @@ public final class SmsSendService extends Service {
         int completed = index + 1;
         generation++;
         String status = success ? "confirmed_sent" : "failed";
+        if(success){
+            android.content.SharedPreferences prefs=getSharedPreferences("bach_sms",MODE_PRIVATE);
+            java.util.Set<String> done=new java.util.HashSet<>(prefs.getStringSet("completed_cloud_jobs",new java.util.HashSet<>()));
+            done.add(job.id);prefs.edit().putStringSet("completed_cloud_jobs",done).commit();
+        }
 
         new Thread(() -> {
             try {
@@ -310,3 +315,4 @@ public final class SmsSendService extends Service {
         return input == null ? "" : input.trim();
     }
 }
+

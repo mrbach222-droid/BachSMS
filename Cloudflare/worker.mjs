@@ -72,7 +72,7 @@ async function handle(request, env) {
     if(previous){if(previous.digest!==digest)fail(409,"Mã gói đã được dùng cho dữ liệu khác.");return json({id:data.id,accepted:jobs.length,duplicate:true});}
     const statements=[env.DB.prepare("INSERT OR IGNORE INTO batches(channel,id,digest,created_at) VALUES(?,?,?,?)").bind(channel.id,data.id,digest,now)];
     for(const job of jobs){const serialized=JSON.stringify(job), jd=await hash(serialized);
-      statements.push(env.DB.prepare("INSERT OR IGNORE INTO jobs(channel,id,batch_id,digest,payload,created_at,expires_at) SELECT ?,?,?,?,?,?,? WHERE EXISTS(SELECT 1 FROM batches WHERE channel=? AND id=? AND digest=?)")
+      statements.push(env.DB.prepare("INSERT INTO jobs(channel,id,batch_id,digest,payload,created_at,expires_at) SELECT ?,?,?,?,?,?,? WHERE EXISTS(SELECT 1 FROM batches WHERE channel=? AND id=? AND digest=?) ON CONFLICT(channel,id) DO UPDATE SET digest=CASE WHEN jobs.digest=excluded.digest THEN jobs.digest ELSE NULL END")
         .bind(channel.id,job.id,data.id,jd,serialized,now,now+TTL,channel.id,data.id,digest));}
     await env.DB.batch(statements);
     const saved=await env.DB.prepare("SELECT digest FROM batches WHERE channel=? AND id=?").bind(channel.id,data.id).first();

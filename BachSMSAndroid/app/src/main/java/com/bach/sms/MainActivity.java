@@ -113,11 +113,11 @@ public final class MainActivity extends Activity {
         subtitle.setPadding(0, dp(2), 0, dp(10));
         root.addView(subtitle, matchWrap());
 
-        serverInput = input("Địa chỉ CRM, ví dụ http://100.x.x.x:8765");
+        serverInput = input("Địa chỉ Cloudflare tự điền sau khi liên kết");
         root.addView(serverInput, match(dp(46)));
 
         LinearLayout pairRow = row();
-        codeInput = input("Mã CRM");
+        codeInput = input("Dán mã bachsms1.… từ PC");
         pairRow.addView(codeInput, weight(1, dp(46)));
         Button pairButton = button("GHÉP CRM", Color.rgb(20, 105, 160));
         pairButton.setOnClickListener(v -> pair());
@@ -199,12 +199,25 @@ public final class MainActivity extends Activity {
         serverInput.setText(preferences.getString("server_url", ""));
         codeInput.setText(preferences.getString("crm_code", ""));
         messageInput.setText(preferences.getString("message_template", ""));
+        if (preferences.getBoolean("cloud", false)) {
+            serverInput.setEnabled(false);
+            try { showJsonJobs(CloudInbox.read(this, cloudScope())); } catch(Exception e) { statusView.setText("Chưa đọc được danh sách lưu trên máy."); }
+        }
         if (!token.isEmpty()) statusView.setText("Đã lưu ghép nối. Bấm TẢI KHÁCH TỪ CRM.");
     }
 
     private void pair() {
         String server = serverInput.getText().toString().trim();
         String code = codeInput.getText().toString().trim();
+        if(code.startsWith("bachsms1.")){
+            statusView.setText("Đang liên kết Cloudflare...");
+            runNetwork(() -> {
+                JSONObject link=CloudInbox.link(code);String base=link.getString("url"), reader=link.getString("token"), channel=link.getString("channel");
+                CrmClient.jobs(base, reader, deviceId);
+                if(!preferences.edit().putString("server_url",base).putString("crm_code","CF-"+channel).putString("token",reader).putBoolean("cloud",true).commit())throw new Exception("Không lưu được kết nối trên điện thoại.");
+                runOnUiThread(() -> {token=reader;serverInput.setText(base);serverInput.setEnabled(false);codeInput.setText("CF-"+channel);fetchJobs();});
+            });return;
+        }
         if (server.isEmpty() || code.isEmpty()) {
             toast("Nhập địa chỉ CRM và mã CRM.");
             return;
@@ -234,15 +247,28 @@ public final class MainActivity extends Activity {
         statusView.setText("Đang tải khách...");
         runNetwork(() -> {
             JSONArray array = CrmClient.jobs(server, token, deviceId);
+            if(preferences.getBoolean("cloud",false)){
+                String scope=cloudScope();int pages=0;
+                while(array.length()>0 && pages++<250){
+                    CloudInbox.merge(this, scope, array);
+                    CrmClient.received(server, token, array);
+                    array=CrmClient.jobs(server, token, deviceId);
+                }
+                array=CloudInbox.read(this, scope);
+            }
             ArrayList<Job> loaded = new ArrayList<>();
             for (int i = 0; i < array.length(); i++) loaded.add(Job.fromJson(array.getJSONObject(i)));
             runOnUiThread(() -> showJobs(loaded));
         });
     }
 
+    private String cloudScope(){return preferences.getString("server_url","")+"|"+preferences.getString("crm_code","");}
+    private void showJsonJobs(JSONArray array) throws Exception {ArrayList<Job> loaded=new ArrayList<>();for(int i=0;i<array.length();i++)loaded.add(Job.fromJson(array.getJSONObject(i)));showJobs(loaded);}
+
     private void showJobs(List<Job> loaded) {
         jobs.clear();
-        jobs.addAll(loaded);
+        java.util.Set<String> done=preferences.getStringSet("completed_cloud_jobs",new java.util.HashSet<>());
+        for(Job job:loaded)if(!done.contains(job.id))jobs.add(job);
         ArrayList<String> labels = new ArrayList<>();
         for (Job job : jobs) labels.add(job.display());
         customerAdapter.clear();
@@ -446,3 +472,4 @@ public final class MainActivity extends Activity {
 
     private interface ThrowingAction { void run() throws Exception; }
 }
+

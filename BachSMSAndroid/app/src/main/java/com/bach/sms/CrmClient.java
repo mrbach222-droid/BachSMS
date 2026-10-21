@@ -35,6 +35,11 @@ final class CrmClient {
         return response.optJSONArray("jobs") == null ? new JSONArray() : response.getJSONArray("jobs");
     }
 
+    static void received(String baseUrl, String token, JSONArray jobs) throws Exception {
+        JSONArray ids = new JSONArray();for(int i=0;i<jobs.length();i++)ids.put(jobs.getJSONObject(i).getString("id"));
+        request(baseUrl,"POST","/api/v1/received",new JSONObject().put("job_ids",ids),token,null);
+    }
+
     static void postStatus(
         String baseUrl,
         String token,
@@ -70,6 +75,7 @@ final class CrmClient {
         if (!base.startsWith("http://") && !base.startsWith("https://")) base = "http://" + base;
 
         HttpURLConnection connection = (HttpURLConnection)new URL(base + path).openConnection();
+        connection.setInstanceFollowRedirects(false);
         connection.setRequestMethod(method);
         connection.setConnectTimeout(8000);
         connection.setReadTimeout(12000);
@@ -116,3 +122,4 @@ final class CrmClient {
         return format.format(new Date());
     }
 }
+

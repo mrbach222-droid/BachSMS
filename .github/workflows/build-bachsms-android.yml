@@ -2,7 +2,7 @@ name: Build Bách SMS Android APK
 
 on:
   push:
-    branches: [bachsms-crm-sync-v1.1.0]
+    branches: [bachsms-cloudflare-v1.2.0-20261021]
     paths:
       - "BachSMSAndroid/**"
       - ".github/workflows/build-bachsms-android.yml"
@@ -38,13 +38,14 @@ jobs:
       - name: Package APK
         run: |
           mkdir -p BachSMSAndroid/dist
-          cp BachSMSAndroid/app/build/outputs/apk/debug/app-debug.apk BachSMSAndroid/dist/BachSMS_Android_v1.0.0_CRM_AutoSMS.apk
-          sha256sum BachSMSAndroid/dist/BachSMS_Android_v1.0.0_CRM_AutoSMS.apk
+          cp BachSMSAndroid/app/build/outputs/apk/debug/app-debug.apk BachSMSAndroid/dist/BachSMS_Android_v1.2.0_Cloudflare.apk
+          sha256sum BachSMSAndroid/dist/BachSMS_Android_v1.2.0_Cloudflare.apk
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: BachSMS-Android-v1.0.0-CRM-AutoSMS
-          path: BachSMSAndroid/dist/BachSMS_Android_v1.0.0_CRM_AutoSMS.apk
+          name: BachSMS-Android-v1.2.0-Cloudflare
+          path: BachSMSAndroid/dist/BachSMS_Android_v1.2.0_Cloudflare.apk
           if-no-files-found: error
           retention-days: 30
+
