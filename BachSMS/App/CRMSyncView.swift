@@ -59,10 +59,13 @@ struct CRMSyncView: View {
                 TextField("Dán mã bachsms1.… từ CRM trên PC", text: $cloudCode)
                     .textInputAutocapitalization(.never).disableAutocorrection(true)
                     .privacySensitive()
-                Button("Liên kết Cloudflare") { Task { await controller.linkCloud(cloudCode); cloudCode = "" } }
+                Button("Liên kết Cloudflare") { Task { await controller.linkCloud(cloudCode); if controller.isCloud && controller.isPaired { cloudCode = "" } } }
                     .disabled(cloudCode.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || controller.connectionState == .connecting)
             }
             if controller.connectionState == .connecting { ProgressView("Đang kết nối…") }
+            if case .error(let message) = controller.connectionState {
+                Text(message).font(.footnote).foregroundStyle(.red)
+            }
         } header: { Text("Nhận khách qua Internet") }
         footer: { Text("Dán mã một lần. PC và điện thoại có thể dùng khác Wi‑Fi hoặc 4G/5G. Mã này chỉ dành cho thiết bị của anh.") }
     }

@@ -432,7 +432,8 @@ final class CRMSyncController: ObservableObject {
             throw CRMSyncError.unexpectedResponse
         }
         guard (200..<300).contains(http.statusCode) else {
-            let message = String(data: data, encoding: .utf8) ?? ""
+            let payload = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+            let message = payload?["error"] as? String ?? String(data: data, encoding: .utf8) ?? ""
             throw CRMSyncError.server(http.statusCode, message)
         }
         return data
