@@ -1,0 +1,13 @@
+using System;using System.IO;using System.Linq;using System.Text;using Mono.Cecil;using Mono.Cecil.Cil;
+class PatchCloud45 {
+ static void Main(string[] args){var asm=AssemblyDefinition.ReadAssembly(args[0]);if(asm.Name.Version.ToString()!="1.4.14.44")throw new Exception("Expected exact v44");var module=asm.MainModule;
+  var helper=AssemblyDefinition.ReadAssembly(args[1]).MainModule.Types.Single(t=>t.Name=="BachCRMCloud").Methods.Single(m=>m.Name=="Install");var ctor=module.Types.Single(t=>t.Name=="CRM").Methods.Single(m=>m.Name==".ctor");var il=ctor.Body.GetILProcessor();
+  var longCodes=typeof(OpCodes).GetFields().Where(f=>f.FieldType==typeof(OpCode)).Select(f=>(OpCode)f.GetValue(null)).Where(o=>o.OperandType==OperandType.InlineBrTarget).ToDictionary(o=>o.Name);
+  foreach(var i in ctor.Body.Instructions.Where(i=>i.OpCode.OperandType==OperandType.ShortInlineBrTarget))i.OpCode=longCodes[i.OpCode.Name.Substring(0,i.OpCode.Name.Length-2)];
+  foreach(var ret in ctor.Body.Instructions.Where(i=>i.OpCode==OpCodes.Ret).ToArray()){ret.OpCode=OpCodes.Nop;var a=il.Create(OpCodes.Ldarg_0);var b=il.Create(OpCodes.Call,module.ImportReference(helper));var c=il.Create(OpCodes.Ret);il.InsertAfter(ret,a);il.InsertAfter(a,b);il.InsertAfter(b,c);}
+  int captions=0;foreach(var i in ctor.Body.Instructions.Where(i=>i.OpCode==OpCodes.Ldstr))if(((string)i.Operand).Contains("v1.4.14.44 MỘT LẦN BẤM")){i.Operand=((string)i.Operand).Replace("v1.4.14.44 MỘT LẦN BẤM","v1.4.14.45 BÁCH SMS CLOUD");captions++;}if(captions!=1)throw new Exception("Wrong caption");
+  asm.Name.Version=new Version(1,4,14,45);foreach(var attr in asm.CustomAttributes.Where(x=>x.AttributeType.Name=="AssemblyFileVersionAttribute"||x.AttributeType.Name=="AssemblyInformationalVersionAttribute"))if(attr.ConstructorArguments.Count>0)attr.ConstructorArguments[0]=new CustomAttributeArgument(module.TypeSystem.String,"1.4.14.45");asm.Write(args[2]);
+  byte[] bytes=File.ReadAllBytes(args[2]);int pos=-1;for(int n=0;n<bytes.Length-24;n++)if(BitConverter.ToUInt32(bytes,n)==0xFEEF04BD){pos=n;break;}if(pos<0||BitConverter.ToUInt32(bytes,pos+12)!=(14U<<16|44U))throw new Exception("Wrong native version");Array.Copy(BitConverter.GetBytes(14U<<16|45U),0,bytes,pos+12,4);Array.Copy(BitConverter.GetBytes(14U<<16|45U),0,bytes,pos+20,4);byte[] old=Encoding.Unicode.GetBytes("1.4.14.44"),updated=Encoding.Unicode.GetBytes("1.4.14.45");for(int n=0;n<=bytes.Length-old.Length;n++)if(old.Select((v,j)=>bytes[n+j]==v).All(v=>v)){Array.Copy(updated,0,bytes,n,updated.Length);n+=old.Length-1;}File.WriteAllBytes(args[2],bytes);
+  Console.WriteLine("Built CRM v45 from v44: added cloud toolbar/context-menu installer only.");
+ }
+}

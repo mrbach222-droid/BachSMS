@@ -1,0 +1,66 @@
+name: Build CRM 1.4.14.45 Cloudflare
+on:
+  push:
+    branches: [bachsms-cloudflare-v1.2.0-20261021]
+    paths: ["CRMCloud/**", ".github/workflows/build-cloud-crm.yml"]
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile and verify CRM upgrade
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force CRMCloud/dist | Out-Null
+          Invoke-WebRequest 'https://api.nuget.org/v3-flatcontainer/mono.cecil/0.11.6/mono.cecil.0.11.6.nupkg' -OutFile CRMCloud/cecil.zip
+          Expand-Archive CRMCloud/cecil.zip CRMCloud/cecil -Force
+          Copy-Item CRMCloud/cecil/lib/net40/Mono.Cecil.dll CRMCloud/dist/
+          Invoke-WebRequest 'https://api.nuget.org/v3-flatcontainer/microsoft.netframework.referenceassemblies.net45/1.0.3/microsoft.netframework.referenceassemblies.net45.1.0.3.nupkg' -OutFile CRMCloud/framework.zip
+          Expand-Archive CRMCloud/framework.zip CRMCloud/framework -Force
+          $api = (Resolve-Path 'CRMCloud/framework/build/.NETFramework/v4.5').Path
+          $csc = "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
+          $refs = @('mscorlib','System','System.Core','System.Data','System.Drawing','System.Windows.Forms','System.Security','System.Web.Extensions','System.Xml','System.Runtime.Serialization','System.IO.Compression','System.IO.Compression.FileSystem') | ForEach-Object { '/reference:' + (Join-Path $api ($_.ToString()+'.dll')) }
+          & $csc /nologo /codepage:65001 /target:library /nostdlib+ /optimize+ /out:CRMCloud/dist/BachCRMCloud.dll @refs CRMCloud/BachCRMCloud.cs
+          if ($LASTEXITCODE -ne 0) { throw 'Cloud helper compile failed' }
+          & $csc /nologo /codepage:65001 /out:CRMCloud/dist/PatchCloud45.exe /reference:CRMCloud/dist/Mono.Cecil.dll CRMCloud/PatchCloud45.cs
+          if ($LASTEXITCODE -ne 0) { throw 'Patcher compile failed' }
+          & $csc /nologo /codepage:65001 /out:CRMCloud/dist/VerifyCloud45.exe /reference:CRMCloud/dist/Mono.Cecil.dll CRMCloud/VerifyCloud45.cs
+          if ($LASTEXITCODE -ne 0) { throw 'Verifier compile failed' }
+          Copy-Item CRMCloud/baseline/*.dll CRMCloud/dist/
+          & CRMCloud/dist/PatchCloud45.exe CRMCloud/baseline/BachCRMExcel.exe CRMCloud/dist/BachCRMCloud.dll CRMCloud/dist/BachCRMExcel.exe
+          if ($LASTEXITCODE -ne 0) { throw 'Patch failed' }
+          & CRMCloud/dist/VerifyCloud45.exe CRMCloud/baseline/BachCRMExcel.exe CRMCloud/dist/BachCRMExcel.exe | Tee-Object CRMCloud/dist/patch-check.log
+          if ($LASTEXITCODE -ne 0) { throw 'Patch verification failed' }
+          & $csc /nologo /codepage:65001 /target:exe /nostdlib+ /out:CRMCloud/dist/CloudTests.exe @refs /reference:CRMCloud/dist/BachCRMCloud.dll CRMCloud/CloudTests.cs
+          if ($LASTEXITCODE -ne 0) { throw 'Cloud tests compile failed' }
+          & CRMCloud/dist/CloudTests.exe CRMCloud/dist/BachCRMExcel.exe | Tee-Object CRMCloud/dist/cloud-tests.log
+          if ($LASTEXITCODE -ne 0) { throw 'Cloud tests failed' }
+          & $csc /nologo /out:CRMCloud/dist/WindowsApiCheck.exe /reference:CRMCloud/dist/Mono.Cecil.dll CRMCloud/WindowsApiCheck.cs
+          foreach ($file in @('BachCRMCloud.dll','BachCRMExcel.exe')) {
+            & CRMCloud/dist/WindowsApiCheck.exe $api (Join-Path CRMCloud/dist $file) | Tee-Object ('CRMCloud/dist/'+$file+'.api.log')
+            if ($LASTEXITCODE -ne 0) { throw 'Framework API verification failed' }
+          }
+      - name: Run preserved report, AF, coverage and export regressions
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $csc = "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
+          $refs = @('System','System.Core','System.Drawing','System.Windows.Forms','System.Xml','System.Runtime.Serialization','System.IO.Compression','System.IO.Compression.FileSystem') | ForEach-Object { '/reference:' + $_ + '.dll' }
+          foreach ($test in @('ActivityIntegrationTests','ContactDateTests','DailyExportTests')) {
+            $sources = @('CRMCloud/tests/'+$test+'.cs')
+            if ($test -ne 'DailyExportTests') { $sources += 'CRMCloud/tests/ExcelTestDouble.cs' }
+            $outputArg = '/out:CRMCloud/dist/' + $test + '.exe'
+            & $csc /nologo /codepage:65001 $outputArg @refs /reference:CRMCloud/dist/BachCRMActivity.dll /reference:CRMCloud/dist/BachCRMContactDate.dll /reference:CRMCloud/dist/BachCRMReportExport.dll @sources
+            if ($LASTEXITCODE -ne 0) { throw "Test compilation failed: $test" }
+            & ('CRMCloud/dist/'+$test+'.exe') CRMCloud/dist/BachCRMExcel.exe | Tee-Object ('CRMCloud/dist/'+$test+'.log')
+            if ($LASTEXITCODE -ne 0) { throw "Regression failed: $test" }
+          }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: BachCRM-v1.4.14.45-Cloudflare
+          path: CRMCloud/dist/*
+          if-no-files-found: error
+          retention-days: 30
