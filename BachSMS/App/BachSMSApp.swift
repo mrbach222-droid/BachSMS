@@ -140,6 +140,9 @@ private final class SMSViewModel: ObservableObject {
         let source = currentRecipient.customMessage?.trimmingCharacters(in: .whitespacesAndNewlines)
         let resolved = (source?.isEmpty == false) ? source! : template
         return resolved.replacingOccurrences(of: "{ten}", with: currentRecipient.name)
+            .replacingOccurrences(of: "{cif}", with: currentRecipient.cif ?? "")
+            .replacingOccurrences(of: "{hopdong}", with: currentRecipient.contractNumber ?? "")
+            .replacingOccurrences(of: "{sdt}", with: currentRecipient.phone)
     }
 
     var suggestedTemplate: SMSSuggestedTemplate? {
@@ -843,4 +846,5 @@ private struct PrimaryButtonStyle: ButtonStyle {
             .background(SMSPalette.green.opacity(configuration.isPressed ? 0.82 : 1), in: RoundedRectangle(cornerRadius: 15))
     }
 }
+
 
