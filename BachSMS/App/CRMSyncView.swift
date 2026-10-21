@@ -9,11 +9,15 @@ struct CRMSyncView: View {
     @State private var crmCode = ""
     @State private var deviceName = ""
     @State private var selectedJobIDs = Set<String>()
+    @State private var cloudCode = ""
 
     var body: some View {
         NavigationView {
             List {
-                connectionSection
+                cloudSection
+                if !controller.isCloud {
+                    Section { DisclosureGroup("Kết nối LAN cũ") { connectionSection } }
+                }
                 if controller.isPaired {
                     jobsSection
                     statusSection
@@ -41,6 +45,26 @@ struct CRMSyncView: View {
             }
         }
         .navigationViewStyle(.stack)
+    }
+
+    private var cloudSection: some View {
+        Section {
+            if controller.isCloud && controller.isPaired {
+                Label("Đã liên kết Cloudflare", systemImage: "checkmark.icloud.fill")
+                    .foregroundStyle(.green)
+                Text(controller.settings.serverURL).font(.footnote).foregroundStyle(.secondary)
+                Button("Nhận khách từ CRM") { Task { await controller.refresh(); selectPendingJobs() } }
+                Button("Ngắt liên kết", role: .destructive) { controller.unpair() }
+            } else {
+                TextField("Dán mã bachsms1.… từ CRM trên PC", text: $cloudCode)
+                    .textInputAutocapitalization(.never).disableAutocorrection(true)
+                    .privacySensitive()
+                Button("Liên kết Cloudflare") { Task { await controller.linkCloud(cloudCode); cloudCode = "" } }
+                    .disabled(cloudCode.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || controller.connectionState == .connecting)
+            }
+            if controller.connectionState == .connecting { ProgressView("Đang kết nối…") }
+        } header: { Text("Nhận khách qua Internet") }
+        footer: { Text("Dán mã một lần. PC và điện thoại có thể dùng khác Wi‑Fi hoặc 4G/5G. Mã này chỉ dành cho thiết bị của anh.") }
     }
 
     private var connectionSection: some View {
@@ -214,3 +238,4 @@ struct CRMSyncView: View {
         selectedJobIDs = Set(controller.jobs.map(\.id))
     }
 }
+

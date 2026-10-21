@@ -1,6 +1,7 @@
 import Foundation
 import Security
 import UIKit
+import CryptoKit
 
 enum CRMSyncConnectionState: Equatable {
     case notConfigured
@@ -158,6 +159,13 @@ final class CRMSyncController: ObservableObject {
     private let decoder: JSONDecoder
     private let settingsKey = "bach.sms.crm.sync.settings.v1"
     private let outboxKey = "bach.sms.crm.sync.outbox.v1"
+    private var scopedOutboxKey: String { isCloud ? outboxKey + "." + scopeHash : outboxKey }
+    private var scopeHash: String { SHA256.hash(data: Data((settings.serverURL + "|" + settings.crmCode).utf8)).map { String(format: "%02x", $0) }.joined() }
+    var isCloud: Bool { settings.crmCode.hasPrefix("CF-") }
+    private var inboxURL: URL {
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("BachSMSCloud").appendingPathComponent(scopeHash + ".json")
+    }
     private let tokenService = "vn.ngocbach.bachsms.crm-sync"
     private let tokenAccount = "paired-device-token"
     private var outbox: [CRMSyncStatusEvent] = []
@@ -181,11 +189,13 @@ final class CRMSyncController: ObservableObject {
             settings = .fresh()
         }
 
-        if let data = defaults.data(forKey: outboxKey),
+        if let data = defaults.data(forKey: scopedOutboxKey),
            let saved = try? decoder.decode([CRMSyncStatusEvent].self, from: data) {
             outbox = saved
             pendingUploadCount = saved.count
         }
+        if isCloud, let data = try? Data(contentsOf: inboxURL),
+           let saved = try? decoder.decode([CRMSyncJob].self, from: data) { jobs = saved }
 
         if settings.serverURL.isEmpty || settings.crmCode.isEmpty {
             connectionState = .notConfigured
@@ -204,6 +214,7 @@ final class CRMSyncController: ObservableObject {
     }
 
     func configure(serverURL: String, crmCode: String, deviceName: String) {
+        persistOutbox()
         settings.serverURL = serverURL.trimmingCharacters(in: .whitespacesAndNewlines)
             .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
         settings.crmCode = crmCode.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -213,7 +224,63 @@ final class CRMSyncController: ObservableObject {
             settings.deviceName = cleanedName
         }
         persistSettings()
+        outbox = (defaults.data(forKey: scopedOutboxKey).flatMap { try? decoder.decode([CRMSyncStatusEvent].self, from: $0) }) ?? []
+        pendingUploadCount = outbox.count
         connectionState = .notConfigured
+    }
+
+    func linkCloud(_ code: String) async {
+        connectionState = .connecting
+        do {
+            let link = try CloudLink.parse(code)
+            var request = URLRequest(url: URL(string: link.url)!.appendingPathComponent("api/v1/jobs"))
+            request.timeoutInterval = 20
+            request.setValue("Bearer " + link.token, forHTTPHeaderField: "Authorization")
+            _ = try decoder.decode(CRMJobsResponse.self, from: await perform(request))
+            persistOutbox()
+            try CRMSyncTokenStore.write(link.token, service: tokenService, account: tokenAccount)
+            settings.serverURL = link.url.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+            settings.crmCode = "CF-" + link.channel
+            persistSettings()
+            outbox = defaults.data(forKey: scopedOutboxKey).flatMap { try? decoder.decode([CRMSyncStatusEvent].self, from: $0) } ?? []
+            pendingUploadCount = outbox.count
+            jobs = (try? Data(contentsOf: inboxURL)).flatMap { try? decoder.decode([CRMSyncJob].self, from: $0) } ?? []
+            await refresh()
+        } catch {
+            connectionState = .error(error.localizedDescription)
+            lastMessage = error.localizedDescription
+        }
+    }
+
+    private func saveCloudInbox(_ incoming: [CRMSyncJob]) throws {
+        var byID = Dictionary(jobs.map { ($0.id, $0) }, uniquingKeysWith: { _, newer in newer })
+        for job in incoming { byID[job.id] = job }
+        let saved = byID.values.sorted { $0.createdAt < $1.createdAt }
+        try FileManager.default.createDirectory(at: inboxURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try encoder.encode(saved).write(to: inboxURL, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+        jobs = saved
+    }
+
+    private func receiveCloudJobs() async throws {
+        var pages = 0
+        while pages < 250 {
+            pages += 1
+            var request = URLRequest(url: try endpoint("api/v1/jobs"))
+            request.timeoutInterval = 20
+            authorize(&request)
+            let response = try decoder.decode(CRMJobsResponse.self, from: await perform(request))
+            if response.jobs.isEmpty { break }
+            // The server may erase personal fields only after this atomic local save succeeds.
+            try saveCloudInbox(response.jobs)
+            var ack = URLRequest(url: try endpoint("api/v1/received"))
+            ack.httpMethod = "POST"; ack.timeoutInterval = 20
+            ack.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            authorize(&ack)
+            ack.httpBody = try JSONSerialization.data(withJSONObject: ["job_ids": response.jobs.map(\.id)])
+            _ = try await perform(ack)
+        }
+        connectionState = .connected
+        lastMessage = "Đã lưu \(jobs.count) khách trên iPhone. Có thể dùng danh sách khi mất mạng."
     }
 
     func pair() async {
@@ -255,6 +322,7 @@ final class CRMSyncController: ObservableObject {
         connectionState = .connecting
         do {
             try await flushOutbox()
+            if isCloud { try await receiveCloudJobs(); return }
             var components = URLComponents(url: try endpoint("api/v1/jobs"), resolvingAgainstBaseURL: false)
             components?.queryItems = [
                 URLQueryItem(name: "device_id", value: settings.deviceID)
@@ -277,7 +345,7 @@ final class CRMSyncController: ObservableObject {
                 : "Đã nhận \(jobs.count) khách từ Bách CRM."
         } catch {
             connectionState = .offline
-            lastMessage = "Chưa kết nối được CRM. Dữ liệu gửi sẽ được giữ trong hàng chờ."
+            lastMessage = "Chưa kết nối được CRM: \(error.localizedDescription). Danh sách đã nhận và trạng thái chờ vẫn được giữ trên máy."
         }
     }
 
@@ -323,7 +391,7 @@ final class CRMSyncController: ObservableObject {
         guard !outbox.isEmpty else { return }
         guard isPaired else { throw CRMSyncError.notPaired }
 
-        let sending = outbox
+        let sending = Array(outbox.prefix(20))
         var request = URLRequest(url: try endpoint("api/v1/statuses"))
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -337,6 +405,7 @@ final class CRMSyncController: ObservableObject {
         guard !accepted.isEmpty else { throw CRMSyncError.invalidPayload }
         outbox.removeAll { accepted.contains($0.id) }
         persistOutbox()
+        if !outbox.isEmpty { try await flushOutbox() }
     }
 
     private func endpoint(_ path: String) throws -> URL {
@@ -378,7 +447,7 @@ final class CRMSyncController: ObservableObject {
     private func persistOutbox() {
         pendingUploadCount = outbox.count
         if let data = try? encoder.encode(outbox) {
-            defaults.set(data, forKey: outboxKey)
+            defaults.set(data, forKey: scopedOutboxKey)
         }
     }
 }
@@ -431,3 +500,4 @@ private enum CRMSyncTokenStore {
         SecItemDelete(query as CFDictionary)
     }
 }
+

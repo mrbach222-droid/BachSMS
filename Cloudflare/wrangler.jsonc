@@ -1,0 +1,10 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "bach-crm-sms",
+  "main": "worker.mjs",
+  "compatibility_date": "2026-10-21",
+  "workers_dev": true,
+  "d1_databases": [{"binding":"DB","database_name":"bach-crm-sms","database_id":"REPLACE_WITH_YOUR_D1_DATABASE_ID"}],
+  "triggers": {"crons":["0 * * * *"]},
+  "observability": {"enabled":false}
+}

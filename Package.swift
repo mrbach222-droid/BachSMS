@@ -9,8 +9,9 @@ let package = Package(
         .target(name: "RecipientImport", dependencies: [.product(name: "CoreXLSX", package: "CoreXLSX")],
                 path: "BachSMS/App",
                 exclude: ["BachSMSApp.swift", "NativePresentation.swift", "MessageTemplates.swift", "Info.plist", "Assets.xcassets"],
-                sources: ["RecipientImport.swift"]),
+                sources: ["RecipientImport.swift", "CloudLink.swift"]),
         .testTarget(name: "RecipientImportTests", dependencies: ["RecipientImport"],
                     path: "Tests", resources: [.copy("Fixtures")])
     ]
 )
+
