@@ -24,7 +24,7 @@ jobs:
           $csc = "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
           $refs = @('mscorlib','System','System.Core','System.Data','System.Drawing','System.Windows.Forms','System.Security','System.Web.Extensions','System.Xml','System.Runtime.Serialization','System.IO.Compression','System.IO.Compression.FileSystem') | ForEach-Object { '/reference:' + (Join-Path $api ($_.ToString()+'.dll')) }
           $source = (Resolve-Path 'CRMCloud/BachCRMCloud.cs').Path
-          & $csc /nologo /codepage:65001 /target:library /nostdlib+ /optimize+ /out:CRMCloud\dist\BachCRMCloud.dll @refs $source
+          & $csc /nologo /noconfig /codepage:65001 /target:library /nostdlib+ /optimize+ /out:CRMCloud\dist\BachCRMCloud.dll @refs $source
           if ($LASTEXITCODE -ne 0) { throw 'Cloud helper compile failed' }
           & $csc /nologo /codepage:65001 /out:CRMCloud\dist\PatchCloud45.exe /reference:CRMCloud\dist\Mono.Cecil.dll CRMCloud\PatchCloud45.cs
           if ($LASTEXITCODE -ne 0) { throw 'Patcher compile failed' }
@@ -35,7 +35,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Patch failed' }
           & CRMCloud/dist/VerifyCloud45.exe CRMCloud/baseline/BachCRMExcel.exe CRMCloud/dist/BachCRMExcel.exe | Tee-Object CRMCloud/dist/patch-check.log
           if ($LASTEXITCODE -ne 0) { throw 'Patch verification failed' }
-          & $csc /nologo /codepage:65001 /target:exe /nostdlib+ /out:CRMCloud\dist\CloudTests.exe @refs /reference:CRMCloud\dist\BachCRMCloud.dll CRMCloud\CloudTests.cs
+          & $csc /nologo /noconfig /codepage:65001 /target:exe /nostdlib+ /out:CRMCloud\dist\CloudTests.exe @refs /reference:CRMCloud\dist\BachCRMCloud.dll CRMCloud\CloudTests.cs
           if ($LASTEXITCODE -ne 0) { throw 'Cloud tests compile failed' }
           & CRMCloud/dist/CloudTests.exe CRMCloud/dist/BachCRMExcel.exe | Tee-Object CRMCloud/dist/cloud-tests.log
           if ($LASTEXITCODE -ne 0) { throw 'Cloud tests failed' }

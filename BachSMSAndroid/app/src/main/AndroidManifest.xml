@@ -12,7 +12,7 @@
 
     <application
         android:allowBackup="false"
-        android:label="Bách SMS"
+        android:label="Bách SMS Cloud"
         android:theme="@android:style/Theme.Material.Light.NoActionBar"
         android:usesCleartextTraffic="true">
         <activity
@@ -31,3 +31,4 @@
             android:foregroundServiceType="dataSync" />
     </application>
 </manifest>
+

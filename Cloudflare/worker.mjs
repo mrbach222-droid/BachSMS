@@ -48,7 +48,8 @@ async function handle(request, env) {
   if (url.protocol !== "https:" && url.hostname !== "localhost" && url.hostname !== "127.0.0.1")fail(400,"Kết nối Cloudflare cần HTTPS.");
   if(!env.DB)fail(503,"Chưa cấu hình D1 binding tên DB.");
   if(request.method==="GET"&&(path==="/"||path==="/health")){
-    try{await env.DB.prepare("SELECT id FROM channels LIMIT 1").first();}catch{fail(503,"Chưa chạy schema.sql trong D1.");}
+    try{const schema=await env.DB.prepare("SELECT COUNT(*) AS n FROM sqlite_master WHERE type='table' AND name IN ('channels','batches','jobs','events')").first();if(schema.n!==4)throw Error();}catch{fail(503,"Chưa chạy đủ schema.sql trong D1.");}
+    if(typeof env.ADMIN_KEY!=="string"||env.ADMIN_KEY.length<32)fail(503,"Chưa đặt secret ADMIN_KEY dài tối thiểu 32 ký tự.");
     return json({service:"BachCRM-BachSMS",version:"1.0.0",ready:true});
   }
   const now = Math.floor(Date.now()/1000);
