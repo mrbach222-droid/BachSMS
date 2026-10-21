@@ -1,4 +1,14 @@
-# Bách SMS iOS 1.0.3 — Mẫu gợi ý
+# Bách SMS 1.2.0 / CRM 1.4.14.45 — Cloudflare
+
+Nhánh này bổ sung chuyển khách đã chọn từ hai vai trò CRM Windows sang Bách SMS qua Internet, dùng Cloudflare Workers và D1. Có nhận từng trang, lưu cục bộ trước khi xác nhận nhận, hàng chờ thử lại theo mã gói, và khóa riêng cho từng kết nối.
+
+Đọc [hướng dẫn cấu hình Cloudflare](Cloudflare/HUONG_DAN_CAU_HINH.md). iPhone dùng màn hình Kết nối Bách CRM → Liên kết Cloudflare; Android Cloud cài song song với app Android cũ.
+
+Mã nguồn: `CRMCloud/`, `Cloudflare/`, `BachSMS/App/`, `BachSMSAndroid/`. Các workflow build tương ứng nằm trong `.github/workflows/`. CRM v44 được giữ riêng tại `CRMCloud/baseline` để đối chiếu, không thay đổi các nhánh baseline trước.
+
+Thông tin nền tảng và tính năng đã chốt trước đây được giữ dưới đây.
+
+## Bách SMS iOS 1.0.3 — Mẫu gợi ý
 
 ## Bản nền đã chốt — 08/10/2026
 
@@ -29,3 +39,4 @@ Based on v1.0.1, retaining its local storage key and original recipient/compose/
 - Build IPA in GitHub Actions after six Swift regression tests. SMS send/cancel and keyboard alignment require an iPhone with a SIM for final validation.
 
 Old binary .xls files must be saved as .xlsx before import. This app requires the user to tap Send for each message. Existing saved data is retained with the same bundle identifier and UserDefaults key.
+

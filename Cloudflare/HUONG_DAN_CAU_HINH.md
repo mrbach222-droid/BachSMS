@@ -154,6 +154,8 @@ CRM lưu cấu hình và gói chưa chuyển xong trong `%LOCALAPPDATA%\BachCRM\
 
 Mã nhận được thiết kế cho một điện thoại tin cậy của mỗi kết nối. Nếu mã bị lộ, xóa kết nối tương ứng trong bảng D1 `channels` sẽ vô hiệu khóa; các bảng con dùng ràng buộc xóa theo kết nối. Sao lưu cần thiết trước khi tự xóa dữ liệu. Người triển khai có thể dùng API `DELETE /api/v1/channel` với khóa ghi của đúng kết nối để thu hồi. Không chia sẻ khóa ghi hoặc ADMIN_KEY với điện thoại.
 
+Sau khi thu hồi, đóng CRM và đổi tên tệp `%LOCALAPPDATA%\BachCRM\CloudSMS\connection.bin` thành `connection-old.bin` để cấu hình một kết nối mới. Hàng chờ của kết nối đã thu hồi không tự chuyển sang kết nối mới.
+
 ## E. Phạm vi kiểm thử và mã nguồn
 
 Đã biên dịch app iPhone trên macOS/Xcode và app Android bằng bộ công cụ Android. Dịch vụ được kiểm tra bằng Worker sản xuất cùng SQLite: phân quyền từng kết nối, 130 khách chia nhiều trang, gửi lại không trùng, xác nhận nhận và dọn dữ liệu, hết hạn, thu hồi khóa. CRM được biên dịch/kiểm tra .NET Framework trên Windows, kèm kiểm tra lại AF, lưu báo cáo/Phủ lại và xuất báo cáo.
