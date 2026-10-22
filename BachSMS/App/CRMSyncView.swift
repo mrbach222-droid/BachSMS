@@ -10,6 +10,7 @@ struct CRMSyncView: View {
     @State private var deviceName = ""
     @State private var selectedJobIDs = Set<String>()
     @State private var cloudCode = ""
+    @State private var showClearJobsConfirmation = false
 
     var body: some View {
         NavigationView {
@@ -42,6 +43,20 @@ struct CRMSyncView: View {
             }
             .onChange(of: controller.jobs) { _ in
                 selectPendingJobs()
+            }
+            .confirmationDialog(
+                "Xoá toàn bộ khách đã nhận từ CRM?",
+                isPresented: $showClearJobsConfirmation,
+                titleVisibility: .visible
+            ) {
+                Button("Xoá toàn bộ", role: .destructive) {
+                    if controller.removeAllJobs() {
+                        selectedJobIDs.removeAll()
+                    }
+                }
+                Button("Huỷ", role: .cancel) {}
+            } message: {
+                Text("Danh sách gửi tin đã nhập trước đó không bị ảnh hưởng.")
             }
         }
         .navigationViewStyle(.stack)
@@ -134,46 +149,18 @@ struct CRMSyncView: View {
                 Text("CRM chưa giao khách SMS mới.")
                     .foregroundStyle(.secondary)
             } else {
-                ForEach(controller.jobs) { job in
-                    Button {
-                        if selectedJobIDs.contains(job.id) {
-                            selectedJobIDs.remove(job.id)
-                        } else {
-                            selectedJobIDs.insert(job.id)
-                        }
-                    } label: {
-                        HStack(alignment: .top, spacing: 12) {
-                            Image(systemName: selectedJobIDs.contains(job.id)
-                                  ? "checkmark.circle.fill"
-                                  : "circle")
-                                .foregroundStyle(selectedJobIDs.contains(job.id) ? .green : .secondary)
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(job.customerName)
-                                    .font(.system(size: 15, weight: .semibold))
-                                    .foregroundStyle(.primary)
-                                Text(job.phone)
-                                    .font(.system(size: 13))
-                                    .foregroundStyle(.secondary)
-                                HStack(spacing: 8) {
-                                    Text("CIF: \(job.cif)")
-                                    if let contract = job.contractNumber, !contract.isEmpty {
-                                        Text("HĐ: \(contract)")
-                                    }
-                                }
-                                .font(.system(size: 11))
-                                .foregroundStyle(.secondary)
-                            }
-                            Spacer()
-                        }
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
+                ForEach(Array(controller.jobs.enumerated()), id: \.element.id) { item in
+                    jobRow(item.element, number: item.offset + 1)
                 }
 
                 Button {
                     let selected = controller.jobs.filter { selectedJobIDs.contains($0.id) }
-                    onImport(selected)
-                    dismiss()
+                    let selectedIDs = Set(selected.map(\.id))
+                    if controller.removeJobs(withIDs: selectedIDs) {
+                        onImport(selected)
+                        selectedJobIDs.subtract(selectedIDs)
+                        dismiss()
+                    }
                 } label: {
                     Label(
                         "Đưa \(selectedJobIDs.count) khách vào danh sách gửi",
@@ -181,6 +168,10 @@ struct CRMSyncView: View {
                     )
                 }
                 .disabled(selectedJobIDs.isEmpty)
+
+                Button("Xoá toàn bộ khách từ CRM", role: .destructive) {
+                    showClearJobsConfirmation = true
+                }
             }
         } header: {
             HStack {
@@ -234,6 +225,61 @@ struct CRMSyncView: View {
                     .font(.system(size: 12))
                     .foregroundStyle(.secondary)
             }
+        }
+    }
+
+    private func jobRow(_ job: CRMSyncJob, number: Int) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Button {
+                if selectedJobIDs.contains(job.id) {
+                    selectedJobIDs.remove(job.id)
+                } else {
+                    selectedJobIDs.insert(job.id)
+                }
+            } label: {
+                HStack(alignment: .top, spacing: 10) {
+                    Image(systemName: selectedJobIDs.contains(job.id)
+                          ? "checkmark.circle.fill"
+                          : "circle")
+                        .foregroundStyle(selectedJobIDs.contains(job.id) ? .green : .secondary)
+                    Text("\(number)")
+                        .font(.system(size: 13, weight: .bold, design: .rounded))
+                        .foregroundStyle(.secondary)
+                        .frame(minWidth: 20, alignment: .trailing)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(job.customerName)
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundStyle(.primary)
+                        Text(job.phone)
+                            .font(.system(size: 13))
+                            .foregroundStyle(.secondary)
+                        HStack(spacing: 8) {
+                            Text("CIF: \(job.cif)")
+                            if let contract = job.contractNumber, !contract.isEmpty {
+                                Text("HĐ: \(contract)")
+                            }
+                        }
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                    }
+                    Spacer(minLength: 4)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            Button(role: .destructive) {
+                if controller.removeJobs(withIDs: [job.id]) {
+                    selectedJobIDs.remove(job.id)
+                }
+            } label: {
+                Image(systemName: "trash")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(.red)
+                    .padding(.vertical, 3)
+            }
+            .buttonStyle(.borderless)
+            .accessibilityLabel("Xoá khách số \(number), \(job.customerName)")
         }
     }
 

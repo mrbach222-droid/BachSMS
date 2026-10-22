@@ -256,9 +256,13 @@ final class CRMSyncController: ObservableObject {
         var byID = Dictionary(jobs.map { ($0.id, $0) }, uniquingKeysWith: { _, newer in newer })
         for job in incoming { byID[job.id] = job }
         let saved = byID.values.sorted { $0.createdAt < $1.createdAt }
+        try writeCloudInbox(saved)
+        jobs = saved
+    }
+
+    private func writeCloudInbox(_ saved: [CRMSyncJob]) throws {
         try FileManager.default.createDirectory(at: inboxURL.deletingLastPathComponent(), withIntermediateDirectories: true)
         try encoder.encode(saved).write(to: inboxURL, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
-        jobs = saved
     }
 
     private func receiveCloudJobs() async throws {
@@ -347,6 +351,33 @@ final class CRMSyncController: ObservableObject {
             connectionState = .offline
             lastMessage = "Chưa kết nối được CRM: \(error.localizedDescription). Danh sách đã nhận và trạng thái chờ vẫn được giữ trên máy."
         }
+    }
+
+    @discardableResult
+    func removeJobs(withIDs ids: Set<String>) -> Bool {
+        guard !ids.isEmpty else { return true }
+        let remaining = jobs.filter { !ids.contains($0.id) }
+        guard remaining.count != jobs.count else { return true }
+
+        if isCloud {
+            do {
+                try writeCloudInbox(remaining)
+            } catch {
+                lastMessage = "Chưa xoá được danh sách đã nhận trên iPhone: \(error.localizedDescription)"
+                return false
+            }
+        }
+
+        jobs = remaining
+        lastMessage = remaining.isEmpty
+            ? "Đã làm trống danh sách khách từ CRM."
+            : "Đã xoá khách được chọn khỏi danh sách CRM."
+        return true
+    }
+
+    @discardableResult
+    func removeAllJobs() -> Bool {
+        removeJobs(withIDs: Set(jobs.map(\.id)))
     }
 
     func mark(

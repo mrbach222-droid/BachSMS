@@ -548,8 +548,8 @@ private struct SMSRootView: View {
                         .padding(18)
                         .background(SMSPalette.card, in: RoundedRectangle(cornerRadius: 16))
                 } else {
-                    ForEach(model.recipients) { person in
-                        recipientRow(person)
+                    ForEach(Array(model.recipients.enumerated()), id: \.element.id) { item in
+                        recipientRow(item.element, number: item.offset + 1)
                     }
                 }
                 if !model.recipients.isEmpty {
@@ -789,11 +789,11 @@ private struct SMSRootView: View {
         .overlay(alignment: .top) { Rectangle().fill(SMSPalette.line).frame(height: 1) }
     }
 
-    private func recipientRow(_ person: SMSRecipient) -> some View {
+    private func recipientRow(_ person: SMSRecipient, number: Int) -> some View {
         HStack(spacing: 12) {
             ZStack {
                 Circle().fill(SMSPalette.paleGreen)
-                Text(String(person.name.prefix(1)).uppercased())
+                Text("\(number)")
                     .font(.system(size: 13, weight: .bold)).foregroundStyle(SMSPalette.green)
             }
             .frame(width: 40, height: 40)
